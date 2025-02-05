@@ -108,7 +108,7 @@ class Timetable:
         one_hour_later = now + timedelta(hours=1)
         next_departures = []
         for departure in self.departures:
-            departure_time = datetime.strptime(departure['date'] + ' ' + departure['time'], '%Y-%m-%d %H:%M:%S')
+            departure_time = datetime.strptime(departure['date'] + ' ' + departure['time'],')
             if now <= departure_time <= one_hour_later:
                 minutes_left = int((departure_time - now).total_seconds() // 60)
                 next_departures.append({
