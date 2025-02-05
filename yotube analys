@@ -1,0 +1,32 @@
+import streamlit as st
+import duckdb
+
+# Connect to database
+db_path = "../database/youtube_data.duckdb"
+conn = duckdb.connect(db_path)
+
+st.title("YouTube Data Analysis Dashboard")
+
+# Dropdown for filters
+filter_option = st.selectbox(
+    "Select Filter:", ["All", "Channel", "Region"]
+)
+
+query = "SELECT * FROM marts.kpi_summary" if filter_option == "All" else None
+if filter_option == "Channel":
+    channel_id = st.text_input("Enter Channel ID:")
+    if channel_id:
+        query = f"SELECT * FROM marts.kpi_summary WHERE channel_id = '{channel_id}'"
+elif filter_option == "Region":
+    region = st.text_input("Enter Region:")
+    if region:
+        query = f"SELECT * FROM marts.user_demographics WHERE region = '{region}'"
+
+if query and st.button("Fetch Data"):
+    try:
+        result = conn.execute(query).fetchdf()
+        st.write(result)
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
+
+conn.close()
