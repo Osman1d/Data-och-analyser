@@ -1,0 +1,173 @@
+requests==2.26.0
+pandas==1.3.3
+numpy==1.21.2
+flask==2.0.1
+gunicorn==20.1.0# Skapa ett virtual environment
+python -m venv venv
+
+# Aktivera virtual environment
+# För Windows
+venv\Scripts\activate
+# För macOS/Linux
+source venv/bin/activate
+
+# Installera dependencies från requirements.txt
+pip install -r requirements.txtname: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        #  testkommandon härimport requests
+import pandas as pd
+
+# API-endpoint för Resrobot
+API_URL = "https://api.resrobot.se/v2.1/trip"
+
+# Dina API-nycklar
+API_KEY = "DIN_API_NYCKEL"
+
+#  på parameters för att hämta data
+params = {
+    'key': API_KEY,
+    'originId': '740000001',
+    'destId': '740000002',
+    'format': 'json'
+}
+
+def fetch_trip_data(params):
+    response = requests.get(API_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Error fetching data: {response.status_code}")
+        return None
+
+def main():
+    data = fetch_trip_data(params)
+    if data:
+        trips = data.get('Trip', [])
+        #  en DataFrame av trips för analys
+        df = pd.DataFrame(trips)
+        print(df.head())
+
+if __name__ == "__main__":
+    main()import requests
+from datetime import datetime, timedelta
+
+API_URL = "https://api.resrobot.se/v2.1/departureBoard"
+API_KEY = "DIN_API_NYCKEL"
+
+class Timetable:
+    def __init__(self, stop_id):
+        self.stop_id = stop_id
+        self.departures = []
+
+    def fetch_departures(self):
+        params = {
+            'key': API_KEY,
+            'id': self.stop_id,
+            'format': 'json',
+            'maxJourneys': 50
+        }
+        response = requests.get(API_URL, params=params)
+        if response.status_code == 200:
+            self.departures = response.json().get('Departure', [])
+        else:
+            print(f"Error fetching data: {response.status_code}")
+            self.departures = []
+
+    def get_next_departures(self):
+        self.fetch_departures()
+        now = datetime.now()
+        one_hour_later = now + timedelta(hours=1)
+        next_departures = []
+        for departure in self.departures:
+            departure_time = datetime.strptime(departure['date'] + ' ' + departure['time'], '%Y-%m-%d %H:%M:%S')
+            if now <= departure_time <= one_hour_later:
+                minutes_left = int((departure_time - now).total_seconds() // 60)
+                next_departures.append({
+                    'line': departure['name'],
+                    'destination': departure['direction'],
+                    'time': departure['time'],
+                    'minutes_left': minutes_left
+                })
+        return next_departures
+
+# Flask app to expose the API
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+@app.route('/timetable', methods=['GET'])
+def timetable():
+    stop_id = request.args.get('stop_id')
+    if not stop_id:
+        return jsonify({'error': 'stop_id is required'}), 400
+
+    timetable = Timetable(stop_id)
+    departures = timetable.get_next_departures()
+    return jsonify(departures)
+
+if __name__ == "__main__":
+    app.run(debug=True)import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const TimetableComponent = ({ stopId }) => {
+  const [departures, setDepartures] = useState([]);
+
+  useEffect(() => {
+    const fetchDepartures = async () => {
+      try {
+        const response = await axios.get('/timetable', {
+          params: { stop_id: stopId }
+        });
+        setDepartures(response.data);
+      } catch (error) {
+        console.error('Error fetching timetable data:', error);
+      }
+    };
+
+    fetchDepartures();
+  }, [stopId]);
+
+  return (
+    <div>
+      <h2>Timetable for Stop: {stopId}</h2>
+      <ul>
+        {departures.map((departure, index) => (
+          <li key={index}>
+            <strong>{departure.line}</strong> to {departure.destination} at {departure.time} ({departure.minutes_left} minutes left)
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+export default TimetableComponent;

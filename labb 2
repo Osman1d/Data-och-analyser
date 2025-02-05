@@ -1,0 +1,61 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import os
+
+# Skapa undermapp för att spara visualiseringar
+os.makedirs("visualiseringar", exist_ok=True)
+
+# Läs in data från Excel-filer
+file_riket = "/mnt/data/riket2023_åk9_np (1).xlsx"
+file_betyg = "/mnt/data/betyg_o_prov_riksnivå (1).xlsx"
+
+# Läs in alla sheets från Excel-filerna
+df_riket = pd.read_excel(file_riket, sheet_name=None)
+df_betyg = pd.read_excel(file_betyg, sheet_name=None)
+
+# Visa tillgängliga sheets
+print("Sheets i riket filen:", df_riket.keys())
+print("Sheets i betygsfilen:", df_betyg.keys())
+
+# Exempel: Ladda in ett specifikt sheet från riket-filen
+matematik_df = df_riket['Matematik']
+
+# Byt kolumnnamn så de blir mer hanterbara
+matematik_df.columns = ["Plats", "Huvudman", "Totalt_A-F", "Flickor_A-F", "Pojkar_A-F", "Totalt_A-E", "Flickor_A-E", "Pojkar_A-E", "Totalt_Poäng", "Flickor_Poäng", "Pojkar_Poäng"]
+
+# Filtrera data för att räkna antal F i matematik
+antal_f_matematik = matematik_df["Totalt_A-F"].sum()
+antal_f_matematik_flickor = matematik_df["Flickor_A-F"].sum()
+antal_f_matematik_pojkar = matematik_df["Pojkar_A-F"].sum()
+
+print(f"Antal F i matematik totalt: {antal_f_matematik}")
+print(f"Antal F i matematik flickor: {antal_f_matematik_flickor}")
+print(f"Antal F i matematik pojkar: {antal_f_matematik_pojkar}")
+
+# Skapa ett stapeldiagram över totala poängen per ämne
+subjects = df_riket.keys()
+total_scores = [df_riket[sub]["Totalt_Poäng"].mean() for sub in subjects]
+
+plt.figure(figsize=(10, 5))
+sns.barplot(x=list(subjects), y=total_scores, palette="Blues")
+plt.xticks(rotation=45)
+plt.title("Totala Poäng per Ämne")
+plt.ylabel("Medelpoäng")
+plt.xlabel("Ämnen")
+plt.savefig("visualiseringar/totala_poäng_per_ämne.png", bbox_inches='tight', facecolor='white')
+plt.show()
+
+# Skapa linjediagram för andel elever som saknar godkänt betyg i minst ett ämne för läsår 18-23
+betyg_df = df_betyg['Andel ej godkända']
+plt.figure(figsize=(10, 5))
+for col in ["Totalt", "Flickor", "Pojkar"]:
+    plt.plot(betyg_df["Läsår"], betyg_df[col], marker='o', label=col)
+plt.legend()
+plt.title("Andel elever utan godkänt betyg i minst ett ämne (2018-2023)")
+plt.xlabel("Läsår")
+plt.ylabel("Andel (%)")
+plt.grid(True)
+plt.savefig("visualiseringar/andel_utan_godkant.png", bbox_inches='tight', facecolor='white')
+plt.show()

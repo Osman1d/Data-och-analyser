@@ -1,0 +1,56 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+data = np.array([
+    [25, 35, "Pikachu"],
+    [15, 14, "Pichu"],
+    [26, 30, "Pichu"],
+    [22, 45, "Pikachu"],
+])
+
+def euclidean_distance(p1, p2):
+    return np.linalg.norm(np.array(p1) - np.array(p2))
+
+def classify_nearest(width, height):
+    test_point = np.array([width, height])
+    distances = np.array([euclidean_distance(test_point, point[:2].astype(float)) for point in data])
+    nearest = data[np.argmin(distances)]
+    return nearest[2]
+
+def classify_k_nearest(width, height, k=5):
+    test_point = np.array([width, height])
+    distances = np.array([euclidean_distance(test_point, point[:2].astype(float)) for point in data])
+    k_nearest = data[np.argsort(distances)[:k]]
+    classes = k_nearest[:, 2]
+    return max(set(classes), key=list(classes).count)
+
+def get_user_input():
+    while True:
+        try:
+            width = float(input("Ange bredd: "))
+            height = float(input("Ange höjd: "))
+            if width <= 0 or height <= 0:
+                print("Fel: Ange positiva numeriska värden.")
+                continue
+            return width, height
+        except ValueError:
+            print("Fel: Ange numeriska värden.")
+
+def plot_data():
+    pikachu = data[data[:, 2] == "Pikachu"]
+    pichu = data[data[:, 2] == "Pichu"]
+    
+    plt.scatter(pikachu[:, 0].astype(float), pikachu[:, 1].astype(float), color='yellow', label='Pikachu')
+    plt.scatter(pichu[:, 0].astype(float), pichu[:, 1].astype(float), color='red', label='Pichu')
+    
+    plt.xlabel("Bredd")
+    plt.ylabel("Höjd")
+    plt.legend()
+    plt.title("Pichu vs Pikachu klassificering")
+    plt.show()
+
+if __name__ == "__main__":
+    width, height = get_user_input()
+    classification = classify_k_nearest(width, height)
+    print(f"Sample with (width, height): ({width}, {height}) classified as {classification}")
+    plot_data()
