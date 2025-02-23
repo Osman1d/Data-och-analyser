@@ -1,0 +1,207 @@
+# # Laboration: Recommender System med Movielens (Ren Python)
+
+# ## Introduktion
+# Denna labb bygger ett rekommendationssystem för filmer med Movielens-datasetet utan externa bibliotek.  
+# Delmomentet "Recommender system" (uppgift 1) är obligatoriskt och omfattar EDA, gles matris och KNN-system.
+
+import os
+import csv
+import math
+from collections import defaultdict
+
+# Skapa mapp för visualiseringar (endast textfiler)
+output_dir = "visualiseringar"
+os.makedirs(output_dir, exist_ok=True)
+
+# ## 1.0 - Uppvärmning
+# Kommentar: Har självständigt gått igenom YouTube-videon och byggt ett enkelt KNN-system med Movielens Small.  
+# Denna del lämnas inte in men har gett grundläggande förståelse.
+
+# ## 1.1 - Movielens Full - EDA
+
+# ### a) EDA - Grundläggande undersökning
+# Läser in movies.csv och ratings.csv manuellt
+movies_dict = {}  # movieId -> (title, genres)
+ratings_list = []  # Lista med (userId, movieId, rating, timestamp)
+with open("movies.csv", "r", encoding="utf-8") as f:
+    reader = csv.reader(f)
+    next(reader)  # Hoppa över header
+    for row in reader:
+        movies_dict[int(row[0])] = (row[1], row[2])
+
+with open("ratings.csv", "r", encoding="utf-8") as f:
+    reader = csv.reader(f)
+    next(reader)  # Hoppa över header
+    for row in reader:
+        ratings_list.append((int(row[0]), int(row[1]), float(row[2]), int(row[3])))
+
+print("### Grundläggande information om datasetet")
+print(f"Antal filmer: {len(movies_dict)}")
+print(f"Antal ratings: {len(ratings_list)}")
+unique_users = len(set(user_id for user_id, _, _, _ in ratings_list))
+print(f"Antal användare: {unique_users}")
+
+# Fördelning av ratings (textbaserad)
+rating_counts = defaultdict(int)
+for _, _, rating, _ in ratings_list:
+    rating_counts[int(rating * 2)] += 1  # Multiplicera med 2 för att hantera 0.5-steg
+with open(os.path.join(output_dir, "rating_distribution.txt"), "w") as f:
+    f.write("Rating distribution:\n")
+    for rating in range(1, 11):  # 0.5 till 5.0
+        count = rating_counts[rating]
+        f.write(f"{rating / 2:.1f}: {'*' * (count // 1000000)}\n")
+print("Se rating_distribution.txt för textbaserad fördelning av betyg.")
+
+# ### b) Top 10 filmer med flest ratings
+movie_rating_counts = defaultdict(int)
+for _, movie_id, _, _ in ratings_list:
+    movie_rating_counts[movie_id] += 1
+
+top_10_rated = sorted(movie_rating_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+print("\n### b) Top 10 filmer med flest ratings")
+for movie_id, count in top_10_rated:
+    title = movies_dict[movie_id][0]
+    print(f"{title}: {count} ratings")
+
+# ### c) Genomsnittlig rating för top 10 filmer
+top_10_ids = {movie_id for movie_id, _ in top_10_rated}
+movie_sums = defaultdict(float)
+movie_counts = defaultdict(int)
+for _, movie_id, rating, _ in ratings_list:
+    if movie_id in top_10_ids:
+        movie_sums[movie_id] += rating
+        movie_counts[movie_id] += 1
+
+print("\n### c) Genomsnittlig rating för top 10 filmer")
+for movie_id, count in top_10_rated:
+    avg = movie_sums[movie_id] / count
+    title = movies_dict[movie_id][0]
+    print(f"{title}: {avg:.2f}")
+
+# ### d) Plot över årtal och antal filmer (textbaserad)
+year_counts = defaultdict(int)
+for movie_id, (title, _) in movies_dict.items():
+    try:
+        year = int(title[-5:-1])  # Extrahera årtal från titel (t.ex. "(1995)")
+        year_counts[year] += 1
+    except ValueError:
+        continue
+
+with open(os.path.join(output_dir, "movies_per_year.txt"), "w") as f:
+    f.write("Movies per year:\n")
+    for year in range(min(year_counts.keys()), max(year_counts.keys()) + 1):
+        count = year_counts.get(year, 0)
+        f.write(f"{year}: {'*' * (count // 100)}\n")
+print("Se movies_per_year.txt för textbaserad fördelning av filmer per årtal.")
+
+# ### e) Plot över antal ratings mot movieId (textbaserad)
+with open(os.path.join(output_dir, "ratings_vs_movieId.txt"), "w") as f:
+    f.write("Ratings vs MovieId (sample of top 10):\n")
+    for movie_id, count in top_10_rated[:10]:
+        f.write(f"MovieId {movie_id}: {'*' * (count // 1000)}\n")
+print("Se ratings_vs_movieId.txt för textbaserad representation av ratings för top 10 movieIds.")
+
+# ### f) Stapeldiagram för genomsnittliga ratings för top 10 filmer (textbaserad)
+with open(os.path.join(output_dir, "top_10_avg_ratings.txt"), "w") as f:
+    f.write("Average ratings for top 10 films:\n")
+    for movie_id, count in top_10_rated:
+        avg = movie_sums[movie_id] / count
+        title = movies_dict[movie_id][0][:20]  # Begränsa titelns längd
+        f.write(f"{title}: {'*' * int(avg * 5)}\n")
+print("Se top_10_avg_ratings.txt för textbaserat stapeldiagram.")
+
+# ## 1.2 - Skapa gles matris
+
+# Kommentar: Skapar en enkel gles matris som dictionary istället för full matris pga minnesbegränsningar.
+min_ratings = 100  # Filtrerar filmer med färre än 100 ratings
+filtered_movie_ids = {mid for mid, count in movie_rating_counts.items() if count >= min_ratings}
+sparse_data = defaultdict(lambda: defaultdict(float))
+for user_id, movie_id, rating, _ in ratings_list:
+    if movie_id in filtered_movie_ids:
+        sparse_data[user_id][movie_id] = rating
+
+# Statistik över gles matris
+num_users = len(sparse_data)
+num_movies = len(filtered_movie_ids)
+num_ratings = sum(len(movies) for movies in sparse_data.values())
+print("\n### 1.2 Gles matris")
+print(f"Antal användare: {num_users}")
+print(f"Antal filmer: {num_movies}")
+print(f"Antal ratings: {num_ratings}")
+
+# Motivering: Filtrerade till filmer med minst 100 ratings för att minska datamängden och fokusera på populära filmer,  
+# vilket gör KNN mer hanterbar och relevant. En dictionary används som gles matris för att undvika full matris i minnet.
+
+# ## 1.3 - Recommender system
+
+# Enkel KNN-implementation i ren Python
+def cosine_similarity(vec1, vec2):
+    """Beräkna cosinusavstånd mellan två glesa vektorer."""
+    dot_product = sum(vec1.get(mid, 0) * vec2.get(mid, 0) for mid in set(vec1) | set(vec2))
+    norm1 = math.sqrt(sum(v * v for v in vec1.values()))
+    norm2 = math.sqrt(sum(v * v for v in vec2.values()))
+    if norm1 == 0 or norm2 == 0:
+        return 0
+    return dot_product / (norm1 * norm2)
+
+def get_recommendations(movie_title, n_recommendations=5):
+    """Hämta rekommendationer baserat på en filmtitel."""
+    target_movie_id = None
+    for mid, (title, _) in movies_dict.items():
+        if movie_title in title:  # Enkel strängmatchning
+            target_movie_id = mid
+            break
+    
+    if target_movie_id is None or target_movie_id not in filtered_movie_ids:
+        return f"Film '{movie_title}' hittades inte eller har för få ratings."
+    
+    # Skapa en vektor för målfilmen
+    target_vector = {}
+    for user_id, movies in sparse_data.items():
+        if target_movie_id in movies:
+            target_vector[user_id] = movies[target_movie_id]
+    
+    # Beräkna likhet med andra filmer
+    similarities = []
+    for movie_id in filtered_movie_ids:
+        if movie_id != target_movie_id:
+            movie_vector = {}
+            for user_id, movies in sparse_data.items():
+                if movie_id in movies:
+                    movie_vector[user_id] = movies[movie_id]
+            sim = cosine_similarity(target_vector, movie_vector)
+            similarities.append((movie_id, sim))
+    
+    # Sortera och hämta topp 5
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    top_n = similarities[:n_recommendations]
+    recommended_titles = [movies_dict[movie_id][0] for movie_id, _ in top_n]
+    return recommended_titles
+
+# Interaktiv användarinput
+print("\n### 1.3 Recommender system")
+while True:
+    query = input("Ange en filmtitel (eller 'avsluta' för att sluta): ").strip()
+    if query.lower() == "avsluta":
+        break
+    recommendations = get_recommendations(query)
+    if isinstance(recommendations, str):
+        print(recommendations)
+    else:
+        print(f"Top 5 rekommendationer för '{query}':")
+        for i, title in enumerate(recommendations, 1):
+            print(f"{i}. {title}")
+
+# ### a) Beskrivning av systemet
+print("\n### a) Hur systemet fungerar")
+print("Systemet använder en enkel KNN-implementation med cosinusavstånd för att hitta filmer med liknande betygmönster. "
+      "En gles matris (dictionary) skapas från ratings för filmer med minst 100 ratings. Användaren anger en filmtitel, "
+      "systemet bygger en vektor för den filmen baserat på användarbetyg och jämför med andra filmer för att returnera "
+      "de 5 mest liknande.")
+
+# ### b) Om rekommendationssystem
+print("\n### b) Om rekommendationssystem")
+print("Rekommendationssystem predictar användarpreferenser baserat på data. Två huvudsakliga typer är: "
+      "1) Content-based (använder filmattribut som genre), och 2) Collaborative filtering (använder användarbeteenden "
+      "som betyg). Detta system använder collaborative filtering med KNN. Källa: 'Recommender Systems Handbook' "
+      "(Ricci et al., 2011).")
