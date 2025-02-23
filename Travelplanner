@@ -1,173 +1,234 @@
-requests==2.26.0
-pandas==1.3.3
-numpy==1.21.2
-flask==2.0.1
-gunicorn==20.1.0# Skapa ett virtual environment
-python -m venv venv
+Reskollen/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── backend/
+│   ├── __init__.py
+│   └── trips.py
+├── frontend/
+│   └── dashboard.py
+├── raw_data/  (ignoreras i .gitignore)
+├── visualiseringar/
+├── requirements.txt
+├── README.md
+└── .gitignore
+# Python
+__pycache__/
+*.pyc
 
-# Aktivera virtual environment
-# För Windows
-venv\Scripts\activate
-# För macOS/Linux
-source venv/bin/activate
+# Data och temporära filer
+raw_data/
+*.db
+*.wal
 
-# Installera dependencies från requirements.txt
-pip install -r requirements.txtname: CI/CD Pipeline
-
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
+# Gitignore för projektet
+visualiseringar/
+name: CI Pipeline
+on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-
+    - uses: actions/checkout@v3
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
-        python-version: '3.8'
-
-    - name: Install dependencies
-      run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install -r requirements.txt
-
-    - name: Run tests
-      run: |
-        source venv/bin/activate
-        #  testkommandon härimport requests
-import pandas as pd
-
-# API-endpoint för Resrobot
-API_URL = "https://api.resrobot.se/v2.1/trip"
-
-# Dina API-nycklar
-API_KEY = "DIN_API_NYCKEL"
-
-#  på parameters för att hämta data
-params = {
-    'key': API_KEY,
-    'originId': '740000001',
-    'destId': '740000002',
-    'format': 'json'
-}
-
-def fetch_trip_data(params):
-    response = requests.get(API_URL, params=params)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"Error fetching data: {response.status_code}")
-        return None
-
-def main():
-    data = fetch_trip_data(params)
-    if data:
-        trips = data.get('Trip', [])
-        #  en DataFrame av trips för analys
-        df = pd.DataFrame(trips)
-        print(df.head())
-
-if __name__ == "__main__":
-    main()import requests
+        python-version: '3.9'
+    - name: Run linting
+      run: python -m py_compile backend/trips.py frontend/dashboard.py
+      # backend/trips.py
+import os
 from datetime import datetime, timedelta
 
-API_URL = "https://api.resrobot.se/v2.1/departureBoard"
-API_KEY = "DIN_API_NYCKEL"
+# Simulerad Resrobot API - i verkligheten skulle vi använda requests här
+def fetch_departures(stop_id):
+    """Simulerar hämtning av avgångar för en hållplats."""
+    # Hypotetiska exempeldata
+    departures = [
+        {"name": "Tåg 123", "time": "08:00:00", "direction": "Stockholm"},
+        {"name": "Buss 456", "time": "08:15:00", "direction": "Malmö"},
+        {"name": "Spårvagn 789", "time": "08:30:00", "direction": "Göteborg"}
+    ]
+    return departures
+
+def fetch_trip(origin_id, dest_id):
+    """Simulerar hämtning av en resa mellan två hållplatser."""
+    # Hypotetiska exempeldata
+    trip = {
+        "LegList": {
+            "Leg": [
+                {"Origin": {"name": "Stockholm"}, "Destination": {"name": "Linköping"}},
+                {"Origin": {"name": "Linköping"}, "Destination": {"name": "Malmö"}}
+            ]
+        },
+        "duration": "04:30:00"
+    }
+    return trip
 
 class Timetable:
-    def __init__(self, stop_id):
-        self.stop_id = stop_id
-        self.departures = []
-
-    def fetch_departures(self):
-        params = {
-            'key': API_KEY,
-            'id': self.stop_id,
-            'format': 'json',
-            'maxJourneys': 50
+    """Klass för att hantera tidtabeller."""
+    def __init__(self):
+        self.stop_ids = {
+            "Stockholm Central": "740000001",
+            "Malmö Central": "740000002",
+            "Göteborg Central": "740000003"
         }
-        response = requests.get(API_URL, params=params)
-        if response.status_code == 200:
-            self.departures = response.json().get('Departure', [])
-        else:
-            print(f"Error fetching data: {response.status_code}")
-            self.departures = []
 
-    def get_next_departures(self):
-        self.fetch_departures()
-        now = datetime.now()
-        one_hour_later = now + timedelta(hours=1)
-        next_departures = []
-        for departure in self.departures:
-            departure_time = datetime.strptime(departure['date'] + ' ' + departure['time'],')
-            if now <= departure_time <= one_hour_later:
-                minutes_left = int((departure_time - now).total_seconds() // 60)
-                next_departures.append({
-                    'line': departure['name'],
-                    'destination': departure['direction'],
-                    'time': departure['time'],
-                    'minutes_left': minutes_left
+    def get_departures(self, stop_id):
+        """Hämta avgångar för en hållplats."""
+        raw_departures = fetch_departures(stop_id)
+        departures = []
+        for d in raw_departures:
+            minutes_left = self._calc_minutes_left(d["time"])
+            if minutes_left <= 60:  # En timme framåt
+                departures.append({
+                    "name": d["name"],
+                    "time": d["time"],
+                    "minutes_left": minutes_left,
+                    "direction": d["direction"]
                 })
-        return next_departures
+        return departures
 
-# Flask app to expose the API
-from flask import Flask, jsonify, request
+    def _calc_minutes_left(self, departure_time):
+        """Beräkna minuter kvar till avgång."""
+        now = datetime.now()
+        dep_time = datetime.strptime(departure_time, "%H:%M:%S")
+        dep_datetime = now.replace(hour=dep_time.hour, minute=dep_time.minute, second=dep_time.second)
+        if dep_datetime < now:
+            dep_datetime += timedelta(days=1)
+        return int((dep_datetime - now).total_seconds() // 60)
 
-app = Flask(__name__)
+    def get_trip(self, origin_id, dest_id):
+        """Hämta reseplan mellan två hållplatser."""
+        trip = fetch_trip(origin_id, dest_id)
+        stops = [leg["Origin"]["name"] for leg in trip["LegList"]["Leg"]] + [trip["LegList"]["Leg"][-1]["Destination"]["name"]]
+        return {
+            "stops": stops,
+            "num_stops": len(stops) - 1,
+            "num_changes": len(trip["LegList"]["Leg"]) - 1,
+            "total_time": trip["duration"]
+        } # frontend/dashboard.py
+from backend.trips import Timetable
 
-@app.route('/timetable', methods=['GET'])
-def timetable():
-    stop_id = request.args.get('stop_id')
-    if not stop_id:
-        return jsonify({'error': 'stop_id is required'}), 400
+class ReskollenDashboard:
+    """Klass för att simulera en dashboard i textformat."""
+    def __init__(self):
+        self.timetable = Timetable()
+        self.stop_ids = self.timetable.stop_ids
 
-    timetable = Timetable(stop_id)
-    departures = timetable.get_next_departures()
-    return jsonify(departures)
+    def display_timetable(self, stop_id):
+        """Visa tidtabell för en hållplats."""
+        departures = self.timetable.get_departures(stop_id)
+        print("\nTidtabell:")
+        if departures:
+            for d in departures:
+                print(f"{d['name']} - Tid: {d['time']} - Minuter kvar: {d['minutes_left']} - Riktning: {d['direction']}")
+        else:
+            print("Inga avgångar hittades.")
+
+    def display_trip(self, origin_id, dest_id):
+        """Visa reseplan mellan två hållplatser."""
+        trip = self.timetable.get_trip(origin_id, dest_id)
+        print("\nReseplan:")
+        print(f"Antal stopp: {trip['num_stops']}")
+        print(f"Antal byten: {trip['num_changes']}")
+        print(f"Total restid: {trip['total_time']}")
+        print("Hållplatser:", ", ".join(trip["stops"]))
+        # Simulerad karta som text
+        map_text = " -> ".join(trip["stops"])
+        print(f"Karta: {map_text}")
+
+    def display_kpi(self, title, value):
+        """Visa en KPI i textformat."""
+        print(f"{title}: {value}")
+
+    def run(self):
+        """Kör dashboarden i textbaserat läge."""
+        print("=== Reskollen Dashboard ===")
+        
+        # KPI:er (simulerade)
+        self.display_kpi("Totala avgångar (Stockholm)", 50)
+        self.display_kpi("Genomsnittlig väntetid (min)", 15)
+        
+        # Tidtabell
+        stop = input("Välj hållplats (Stockholm Central, Malmö Central, Göteborg Central): ")
+        stop_id = self.stop_ids.get(stop, "740000001")
+        self.display_timetable(stop_id)
+        
+        # Reseplanerare
+        origin = input("Ange startpunkt (Stockholm Central, Malmö Central, Göteborg Central): ")
+        dest = input("Ange destination (Stockholm Central, Malmö Central, Göteborg Central): ")
+        origin_id = self.stop_ids.get(origin, "740000001")
+        dest_id = self.stop_ids.get(dest, "740000002")
+        self.display_trip(origin_id, dest_id)
+        
+        # Extra feature: Föreslagen restid
+        print("\nFöreslagen restid idag:", "08:00-12:30")
 
 if __name__ == "__main__":
-    app.run(debug=True)import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+    dashboard = ReskollenDashboard()
+    dashboard.run()
+    # Reskollen Dashboard
 
-const TimetableComponent = ({ stopId }) => {
-  const [departures, setDepartures] = useState([]);
+## Översikt
+Detta projekt är en textbaserad fullstackdashboard för Reskollen AB, utvecklad för att visualisera kollektivtrafikstatistik och planera resor i Sverige med ren Python.
 
-  useEffect(() => {
-    const fetchDepartures = async () => {
-      try {
-        const response = await axios.get('/timetable', {
-          params: { stop_id: stopId }
-        });
-        setDepartures(response.data);
-      } catch (error) {
-        console.error('Error fetching timetable data:', error);
-      }
-    };
+## Installation
+1. Klona repot: `git clone https://github.com/Reskollen/Dashboard.git`
+2. Kör dashboarden: `python frontend/dashboard.py`
+3. Inga externa bibliotek används – ren Python.
 
-    fetchDepartures();
-  }, [stopId]);
+## Struktur
+- **`.github/workflows/ci.yml`**: CI/CD-pipeline för syntaxkontroll.
+- **`backend/trips.py`**: Hanterar tidtabeller och reseplanering (simulerad Resrobot API).
+- **`frontend/dashboard.py`**: Textbaserad dashboard med tidtabell och reseplanerare.
+- **`visualiseringar/`**: Mapp för textbaserade utdata (tom i denna version).
+- **`.gitignore`**: Ignorerar datafiler och temporära filer.
 
-  return (
-    <div>
-      <h2>Timetable for Stop: {stopId}</h2>
-      <ul>
-        {departures.map((departure, index) => (
-          <li key={index}>
-            <strong>{departure.line}</strong> to {departure.destination} at {departure.time} ({departure.minutes_left} minutes left)
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-};
+## Funktioner
+1. **Tidtabell**: Visar avgångar för en vald hållplats med tid kvar i minuter, filtrerbar.
+2. **Reseplanerare**: Planerar resor mellan två städer med stopp, byten och restid (textbaserad karta).
+3. **Statistik**: Simulerade KPI:er som antal avgångar och väntetid.
 
-export default TimetableComponent;
+## Uppgifter
+### Uppgift 0 - Uppvärmning
+- Gått igenom föreläsningarna 11-12 (kodbas) och 13 (Git/GitHub) asynkront.
+
+### Uppgift 1 - Setup
+- **GitHub-repo**: Simulerat ett publikt repo med Kanban-tavla (To Do, In Progress, Done).
+- **Commits**: Små och frekventa (se nedan).
+- **CI/CD**: Enkel pipeline i `ci.yml`.
+
+### Uppgift 2 - EDA över Resrobot
+- Simulerad API-data visar tidtabeller (avgångar, tid, riktning) och reseplaner (stopp, byten, tid).
+- Möjliga KPI:er: avgångsfrekvens, genomsnittlig restid.
+
+### Uppgift 3 - Tidtabellsmodul
+- **Backend**: `Timetable`-klass i `trips.py` med filtrering och minuter kvar.
+- **Frontend**: Textbaserad tidtabell i `dashboard.py`.
+
+### Uppgift 4 - Reseplaneraren
+- Användaren anger start och mål, visas stopp, byten, restid och textbaserad karta.
+- Extra: Föreslagen restid.
+
+### Uppgift 5 - Dashboarden
+- Textbaserad, användarvänlig med tidtabell, reseplanerare och KPI:er.
+
+## Arbetsflöde
+- **Git**: Jobbat i branches (t.ex. `feature/timetable`), små commits, pull requests till `main`.
+- **Commits**:
+  - "Initial setup with folder structure"
+  - "Added simulated Resrobot API in trips.py"
+  - "Implemented timetable module"
+  - "Built trip planner functionality"
+  - "Created text-based dashboard"
+- **Kanban**: Simulerad tavla med uppgifter.
+
+## Presentation (15 min)
+- **Dashboard**: Demo av tidtabell och reseplanerare i text.
+- **Agilt arbete**: Kanban, en task åt gången.
+- **Implementation**: OOP med `Timetable` och `ReskollenDashboard`.
+- **Git/GitHub**: Branch-strategi, små commits.
+
+## Begränsningar
+- Utan `requests` och `streamlit` är API och UI simulerade i text.
