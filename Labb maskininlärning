@@ -1,116 +1,157 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.sparse import csc_matrix
 from sklearn.neighbors import NearestNeighbors
+import os
 
-# 1.1 - Movielens full - EDA
+# Skapa mapp för visualiseringar
+output_dir = "visualiseringar"
+os.makedirs(output_dir, exist_ok=True)
 
-# Ladda datamängderna
-filmer = pd.read_csv('ml-latest/movies.csv')
-betyg = pd.read_csv('ml-latest/ratings.csv')
+# --- 1.1 Movielens full - EDA ---
 
-# a) EDA
-print(betyg.head())
-print(filmer.head())
+# Läsa in data från movies.csv och ratings.csv
+movies = pd.read_csv("movies.csv")
+ratings = pd.read_csv("ratings.csv")
 
-# Plot distribution av betyg
-plt.figure(figsize=(10, 4))
-betyg['rating'].hist(bins=20)
-plt.title('Fördelning av betyg')
-plt.xlabel('Betyg')
-plt.ylabel('Frekvens')
-plt.show()
+# Kombinera dataseten för enklare analys
+movie_ratings = pd.merge(ratings, movies, on="movieId")
 
-# b) Topp 10 filmer med flest betyg
-mest_betyg_filmer = betyg['movieId'].value_counts().head(10)
-print("Topp 10 filmer med flest betyg:")
-print(mest_betyg_filmer)
+# a) EDA - Grundläggande undersökning av datasetet
+print("### EDA - Grundläggande information")
+print(f"Antal filmer: {movies['movieId'].nunique()}")
+print(f"Antal ratings: {ratings.shape[0]}")
+print(f"Antal användare: {ratings['userId'].nunique()}")
 
-# c) Genomsnittligt betyg för topp 10 filmer med flest betyg
-genomsnittliga_betyg = betyg[betyg['movieId'].isin(mest_betyg_filmer.index)].groupby('movieId')['rating'].mean()
-print("Genomsnittliga betyg för topp 10 filmer med flest betyg:")
-print(genomsnittliga_betyg)
+# Fördelning av ratings
+plt.figure(figsize=(8, 6))
+sns.histplot(ratings["rating"], bins=10, color="skyblue")
+plt.title("Fördelning av betyg", fontsize=14)
+plt.xlabel("Betyg", fontsize=12)
+plt.ylabel("Antal", fontsize=12)
+plt.savefig(os.path.join(output_dir, "rating_distribution.png"), facecolor="white", bbox_inches="tight")
+plt.close()
 
-# d) Plot antal filmer per år
-filmer['år'] = filmer['title'].str.extract(r'\((\d{4})\)', expand=False)
-filmer['år'] = filmer['år'].astype(float)
-filmer_per_år = filmer['år'].value_counts().sort_index()
+# b) Top 10 filmer med flest ratings
+top_10_rated = movie_ratings.groupby("title").size().sort_values(ascending=False).head(10)
+print("\n### b) Top 10 filmer med flest ratings")
+print(top_10_rated)
 
-plt.figure(figsize=(10, 4))
-filmer_per_år.plot(kind='bar')
-plt.title('Antal filmer per år')
-plt.xlabel('År')
-plt.ylabel('Antal filmer')
-plt.show()
+# c) Genomsnittlig rating för top 10 filmer
+top_10_titles = top_10_rated.index
+top_10_avg_ratings = movie_ratings[movie_ratings["title"].isin(top_10_titles)].groupby("title")["rating"].mean()
+print("\n### c) Genomsnittlig rating för top 10 filmer")
+print(top_10_avg_ratings)
 
-# e) Plot antal betyg per movieId
-plt.figure(figsize=(10, 4))
-betyg['movieId'].value_counts().plot(kind='bar')
-plt.title('Antal betyg per MovieId')
-plt.xlabel('MovieId')
-plt.ylabel('Antal betyg')
-plt.show()
+# d) Plot över årtal och antal filmer
+movies["year"] = movies["title"].str.extract(r"\((\d{4})\)")  # Extrahera årtal från titel
+year_counts = movies["year"].value_counts().sort_index()
+plt.figure(figsize=(12, 6))
+plt.plot(year_counts.index, year_counts.values, color="teal")
+plt.title("Antal filmer per årtal", fontsize=14)
+plt.xlabel("Årtal", fontsize=12)
+plt.ylabel("Antal filmer", fontsize=12)
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(output_dir, "movies_per_year.png"), facecolor="white", bbox_inches="tight")
+plt.close()
 
-# f) Stapeldiagram över genomsnittliga betyg för topp 10 filmer med flest betyg
-plt.figure(figsize=(10, 4))
-genomsnittliga_betyg.plot(kind='bar')
-plt.title('Genomsnittliga betyg för topp 10 filmer med flest betyg')
-plt.xlabel('MovieId')
-plt.ylabel('Genomsnittligt betyg')
-plt.show()
+# e) Plot över antal ratings mot movieId
+ratings_per_movie = movie_ratings.groupby("movieId").size()
+plt.figure(figsize=(10, 6))
+plt.scatter(ratings_per_movie.index, ratings_per_movie.values, alpha=0.5, color="coral")
+plt.title("Antal ratings mot MovieId", fontsize=14)
+plt.xlabel("MovieId", fontsize=12)
+plt.ylabel("Antal ratings", fontsize=12)
+plt.savefig(os.path.join(output_dir, "ratings_vs_movieId.png"), facecolor="white", bbox_inches="tight")
+plt.close()
 
-# 1.2 Skapa gles matris
-# Filtrera datamängden för att inkludera filmer med minst 50 betyg
-filtrerade_filmer = betyg['movieId'].value_counts()[betyg['movieId'].value_counts() >= 50].index
-filtrerade_betyg = betyg[betyg['movieId'].isin(filtrerade_filmer)]
+# f) Stapeldiagram för genomsnittliga ratings för top 10 filmer
+plt.figure(figsize=(10, 6))
+sns.barplot(x=top_10_avg_ratings.index, y=top_10_avg_ratings.values, palette="viridis")
+plt.title("Genomsnittliga betyg för top 10 filmer med flest ratings", fontsize=14)
+plt.xlabel("Film", fontsize=12)
+plt.ylabel("Genomsnittligt betyg", fontsize=12)
+plt.xticks(rotation=45, ha="right")
+plt.savefig(os.path.join(output_dir, "top_10_avg_ratings.png"), facecolor="white", bbox_inches="tight")
+plt.close()
 
-# Skapa pivottabell
-pivot_tabell = filtrerade_betyg.pivot(index='movieId', columns='userId', values='rating').fillna(0)
+# --- 1.2 Skapa gles matris ---
 
-# Skapa gles matris
-gles_matris = csc_matrix(pivot_tabell.values)
+# Kommentar: Att skapa en full pivottabell med alla användare och filmer är minneskrävande.
+# Filtrerar till filmer med minst 100 ratings för att minska storleken.
+min_ratings = 100
+movie_counts = movie_ratings["movieId"].value_counts()
+filtered_movies = movie_counts[movie_counts >= min_ratings].index
+filtered_ratings = movie_ratings[movie_ratings["movieId"].isin(filtered_movies)]
 
-# 1.3 Rekommender system
-# Träna KNN-modell
-model_knn = NearestNeighbors(metric='cosine', algorithm='brute')
-model_knn.fit(gles_matris)
+# Skapa en gles matris direkt utan pivottabell
+user_ids = filtered_ratings["userId"].values
+movie_ids = filtered_ratings["movieId"].values
+ratings_values = filtered_ratings["rating"].values
 
-# Funktion för att rekommendera filmer
-def rekommendera_filmer(film_titel, n_rekommendationer=5):
-    film_lista = filmer[filmer['title'].str.contains(film_titel)]
-    if len(film_lista):
-        film_idx = film_lista.iloc[0]['movieId']
-        film_idx = pivot_tabell.index.get_loc(film_idx)
-        avstånd, index = model_knn.kneighbors(gles_matris[film_idx], n_neighbors=n_rekommendationer+1)
-        rekommendationer = []
-        for i in range(1, len(avstånd.flatten())):
-            idx = pivot_tabell.index[index.flatten()[i]]
-            rekommendationer.append(filmer[filmer['movieId'] == idx]['title'].values[0])
-        return rekommendationer
+# Konvertera till index för gles matris
+user_idx = pd.factorize(user_ids)[0]
+movie_idx = pd.factorize(movie_ids)[0]
+sparse_matrix = csc_matrix((ratings_values, (user_idx, movie_idx)), 
+                          shape=(len(np.unique(user_ids)), len(np.unique(movie_ids))))
+
+print("\n### 1.2 Gles matris")
+print(f"Form på gles matris: {sparse_matrix.shape}")
+print(f"Antal icke-nollvärden: {sparse_matrix.nnz}")
+
+# Motivering: Jag filtrerade bort filmer med färre än 100 ratings för att minska minnesanvändning
+# och fokusera på populära filmer, vilket gör KNN mer meningsfullt.
+
+# --- 1.3 Recommender system ---
+
+# Skapa KNN-modell baserat på gles matris
+knn = NearestNeighbors(metric="cosine", algorithm="brute")
+knn.fit(sparse_matrix.T)  # Transponerar så att filmer är rader
+
+# Funktion för att hämta rekommendationer baserat på film-titel
+def get_recommendations(movie_title, n_recommendations=5):
+    if movie_title not in movies["title"].values:
+        return f"Film '{movie_title}' hittades inte."
+    
+    movie_id = movies.loc[movies["title"] == movie_title, "movieId"].values[0]
+    if movie_id not in filtered_movies:
+        return f"Film '{movie_title}' har för få ratings för rekommendation."
+    
+    movie_idx = np.where(filtered_movies == movie_id)[0][0]
+    distances, indices = knn.kneighbors(sparse_matrix.T[movie_idx].reshape(1, -1), 
+                                        n_neighbors=n_recommendations+1)
+    
+    recommended_movie_ids = filtered_movies[indices.flatten()[1:]]  # Hoppa över första (själva filmen)
+    recommended_titles = movies[movies["movieId"].isin(recommended_movie_ids)]["title"].values
+    return recommended_titles
+
+# Användarinput och rekommendationer
+print("\n### 1.3 Recommender system")
+while True:
+    query = input("Ange en filmtitel (eller 'avsluta' för att sluta): ").strip()
+    if query.lower() == "avsluta":
+        break
+    recommendations = get_recommendations(query)
+    if isinstance(recommendations, str):
+        print(recommendations)
     else:
-        return "Inga filmer hittades med den titeln."
+        print(f"Top 5 rekommendationer för '{query}':")
+        for i, title in enumerate(recommendations, 1):
+            print(f"{i}. {title}")
 
-# Exempel på användning
-print(rekommendera_filmer('Toy Story'))
+# a) Beskrivning av systemet
+print("\n### a) Hur systemet fungerar")
+print("Systemet använder KNN för att hitta liknande filmer baserat på användarbetyg. En gles matris skapas från "
+      "filtrerade ratings (filmer med minst 100 ratings). KNN beräknar cosinusavstånd mellan filmer baserat på "
+      "betygsvektorer. Användaren anger en filmtitel, och systemet returnerar de 5 närmaste filmerna.")
 
-# a) Beskrivning av rekommenderingssystemet
-"""
-Rekommenderingssystemet använder K-Nearest Neighbors (KNN) för att rekommendera filmer baserat på 
-användarens input. Systemet tar en filmtitel som input, hittar filmen i datamängden och hittar sedan 
-de 5 närmaste filmerna med hjälp av kosinuslikhet. De rekommenderade filmerna returneras sedan till användaren.
-"""
+# b) Kort om rekommendationssystem
+print("\n### b) Om rekommendationssystem")
+print("Rekommendationssystem predictar användarpreferenser baserat på historisk data. Det finns två hovedtyper: "
+      "1) Content-based (använder filmattribut som genre), 2) Collaborative filtering (använder användarbeteenden, "
+      "som i detta fall med KNN). Källa: 'Recommender Systems Handbook' (Ricci et al., 2011).")
 
-# b) Beskrivning av rekommenderingssystem
-"""
-Rekommenderingssystem är algoritmer designade för att föreslå objekt till användare baserat på olika parametrar. 
-Det finns huvudsakligen tre typer av rekommenderingssystem: innehållsbaserad filtrering, kollaborativ filtrering 
-och hybridmetoder. Innehållsbaserad filtrering rekommenderar objekt som liknar de användaren visat intresse för 
-baserat på objektets egenskaper. Kollaborativ filtrering rekommenderar objekt genom att identifiera mönster i 
-användarbeteende eller preferenser. Hybridmetoder kombinerar både innehållsbaserad och kollaborativ filtrering.
-"""
-
-# Referenser:
-# - "Recommender Systems: An Introduction" av Dietmar Jannach, Markus Zanker, Alexander Felfernig och Gerhard Friedrich
-# - "Introduction to Recommender Systems" av Charu C. Aggarwal
-# - Wikipedia: https://en.wikipedia.org/wiki/Recommender_system
+# Kommentar: Felet i videon är ofta att man inte filtrerar data, vilket gör KNN ineffektiv på stora dataset.
+# Jag åtgärdade detta genom att filtrera och använda gles matris.
