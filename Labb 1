@@ -1,56 +1,128 @@
 import numpy as np
-import matplotlib.pyplot as plt
+import os
 
-data = np.array([
-    [25, 35, "Pikachu"],
-    [15, 14, "Pichu"],
-    [26, 30, "Pichu"],
-    [22, 45, "Pikachu"],
-])
+def load_and_clean_data(filename):
+    """
+    Läser in och rensar data från en fil.
+    """
+    raw_data = []
+    try:
+        with open(filename, 'r') as file:
+            lines = file.readlines()
+            for line in lines:
+                line = line.strip().replace('(', '').replace(')', '')
+                parts = line.split(',')
+                if len(parts) != 2:
+                    print(f"Varning: Ignorerar felaktig rad: {line}")
+                    continue
+                
+                try:
+                    width = float(parts[0])
+                    height = float(parts[1])
+                    if width < 0 or height < 0:
+                        print(f"Varning: Ignorerar rad med negativa värden: {line}")
+                        continue
+                    raw_data.append((width, height))
+                except ValueError:
+                    print(f"Varning: Ignorerar rad med icke-numeriska värden: {line}")
+                    continue
+        
+        if not raw_data:
+            raise ValueError("Ingen giltig data hittades i filen.")
+        return raw_data
+    except FileNotFoundError:
+        print(f"Fel: Filen {filename} hittades inte.")
+        return []
 
-def euclidean_distance(p1, p2):
-    return np.linalg.norm(np.array(p1) - np.array(p2))
+def assign_labels(raw_data):
+    """
+    Tilldelar preliminära etiketter baserat på storlek.
+    """
+    sizes = [(w + h, (w, h)) for w, h in raw_data]
+    sizes.sort()
+    median_size = sizes[len(sizes) // 2][0]
+    
+    training_data = []
+    for w, h in raw_data:
+        size = w + h
+        label = 0 if size < median_size else 1
+        training_data.append((w, h, label))
+    return training_data
 
-def classify_nearest(width, height):
-    test_point = np.array([width, height])
-    distances = np.array([euclidean_distance(test_point, point[:2].astype(float)) for point in data])
-    nearest = data[np.argmin(distances)]
-    return nearest[2]
+def euclidean_distance(point1, point2):
+    """
+    Beräknar euklidiskt avstånd mellan två punkter.
+    """
+    return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
 
-def classify_k_nearest(width, height, k=5):
-    test_point = np.array([width, height])
-    distances = np.array([euclidean_distance(test_point, point[:2].astype(float)) for point in data])
-    k_nearest = data[np.argsort(distances)[:k]]
-    classes = k_nearest[:, 2]
-    return max(set(classes), key=list(classes).count)
+def classify_1nn(test_point, training_data):
+    """
+    Klassificerar en testpunkt med 1-NN.
+    """
+    distances = [(euclidean_distance(test_point, (data[0], data[1])), data[2]) for data in training_data]
+    distances.sort()
+    return "Pikachu" if distances[0][1] == 1 else "Pichu"
+
+def classify_5nn(test_point, training_data):
+    """
+    Klassificerar en testpunkt med 5-NN.
+    """
+    distances = [(euclidean_distance(test_point, (data[0], data[1])), data[2]) for data in training_data]
+    distances.sort()
+    nearest_5 = distances[:5]
+    pichu_count = sum(1 for d in nearest_5 if d[1] == 0)
+    pikachu_count = sum(1 for d in nearest_5 if d[1] == 1)
+    return "Pikachu" if pikachu_count > pichu_count else "Pichu"
 
 def get_user_input():
+    """
+    Hanterar användarinmatning med felhantering.
+    """
     while True:
         try:
             width = float(input("Ange bredd: "))
             height = float(input("Ange höjd: "))
-            if width <= 0 or height <= 0:
-                print("Fel: Ange positiva numeriska värden.")
+            if width < 0 or height < 0:
+                print("Fel: Bredd och höjd får inte vara negativa. Försök igen.")
                 continue
-            return width, height
+            return (width, height)
         except ValueError:
-            print("Fel: Ange numeriska värden.")
+            print("Fel: Vänligen ange numeriska värden. Försök igen.")
 
-def plot_data():
-    pikachu = data[data[:, 2] == "Pikachu"]
-    pichu = data[data[:, 2] == "Pichu"]
+def main():
+    """
+    Huvudprogrammet.
+    """
+    filename = os.path.join("c:", "Users", "muham", "Documents", "GitHub", "Data-och-analyser", "Labb 1", "pichu.txt")
+    raw_data = load_and_clean_data(filename)
     
-    plt.scatter(pikachu[:, 0].astype(float), pikachu[:, 1].astype(float), color='yellow', label='Pikachu')
-    plt.scatter(pichu[:, 0].astype(float), pichu[:, 1].astype(float), color='red', label='Pichu')
+    if not raw_data:
+        print("Programmet avslutas på grund av fel i datainläsning.")
+        return
     
-    plt.xlabel("Bredd")
-    plt.ylabel("Höjd")
-    plt.legend()
-    plt.title("Pichu vs Pikachu klassificering")
-    plt.show()
+    training_data = assign_labels(raw_data)
+    print(f"Läste in och rensade {len(training_data)} datapunkter.\n")
+
+    test_data = [(25, 35), (15, 14), (26, 30), (22, 45)]
+    expected_results = ["Pikachu", "Pichu", "Pichu", "Pikachu"]
+
+    print("Grunduppgift (1-NN):")
+    for sample, expected in zip(test_data, expected_results):
+        result = classify_1nn(sample, training_data)
+        print(f"Sample with (width, height): {sample} classified as {result} (Expected: {expected})")
+
+    print("\nUtökad uppgift (5-NN med användarinmatning):")
+    while True:
+        print("\nAnge en testpunkt för att klassificera (eller skriv 'avsluta' för att sluta):")
+        user_input = input(">").strip().lower()
+        if user_input == "avsluta":
+            break
+        
+        test_point = get_user_input()
+        result = classify_5nn(test_point, training_data)
+        print(f"Punkten {test_point} klassificeras som {result}")
+    
+    print("Programmet avslutas.")
 
 if __name__ == "__main__":
-    width, height = get_user_input()
-    classification = classify_k_nearest(width, height)
-    print(f"Sample with (width, height): ({width}, {height}) classified as {classification}")
-    plot_data()
+    main()
