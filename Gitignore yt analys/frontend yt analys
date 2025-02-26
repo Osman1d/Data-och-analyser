@@ -1,0 +1,57 @@
+import streamlit as st
+import pandas as pd
+import sqlite3
+
+import plotly.express as px
+
+# Set page title
+st.title('YouTube Analytics Dashboard')
+
+# Database connection
+@st.cache_resource
+def get_db_connection():
+    return sqlite3.connect('youtube_data.db')
+
+# Load data
+def load_data():
+    conn = get_db_connection()
+    # Modify these queries based on your actual database structure
+    videos_df = pd.read_sql_query("SELECT * FROM videos", conn)
+    conn.close()
+    return videos_df
+
+# Load the data
+df = load_data()
+
+# Sidebar filters
+st.sidebar.header('Filters')
+selected_date_range = st.sidebar.date_input(
+    "Select Date Range",
+    value=(df['upload_date'].min(), df['upload_date'].max())
+) if 'upload_date' in df.columns else None
+
+# KPI Cards
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Total Videos", len(df))
+with col2:
+    st.metric("Average Views", int(df['view_count'].mean()) if 'view_count' in df.columns else 0)
+with col3:
+    st.metric("Total Likes", int(df['like_count'].sum()) if 'like_count' in df.columns else 0)
+
+# Views over time chart
+if 'upload_date' in df.columns and 'view_count' in df.columns:
+    fig_views = px.line(df, x='upload_date', y='view_count', title='Views Over Time')
+    st.plotly_chart(fig_views)
+
+# Top videos bar chart
+if 'title' in df.columns and 'view_count' in df.columns:
+    top_videos = df.nlargest(10, 'view_count')
+    fig_top = px.bar(top_videos, x='title', y='view_count', title='Top 10 Videos by Views')
+    st.plotly_chart(fig_top)
+
+# Engagement metrics
+if all(col in df.columns for col in ['like_count', 'comment_count']):
+    engagement_df = df[['like_count', 'comment_count']].mean()
+    fig_engagement = px.bar(engagement_df, title='Average Engagement Metrics')
+    st.plotly_chart(fig_engagement)
