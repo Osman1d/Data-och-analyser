@@ -1,207 +1,239 @@
-# # Laboration: Recommender System med Movielens (Ren Python)
-
-# ## Introduktion
-# Denna labb bygger ett rekommendationssystem för filmer med Movielens-datasetet utan externa bibliotek.  
-# Delmomentet "Recommender system" (uppgift 1) är obligatoriskt och omfattar EDA, gles matris och KNN-system.
-
 import os
-import csv
-import math
-from collections import defaultdict
+import re
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.sparse import csc_matrix
+from sklearn.neighbors import NearestNeighbors
+import plotly.express as px
 
-# Skapa mapp för visualiseringar (endast textfiler)
-output_dir = "visualiseringar"
-os.makedirs(output_dir, exist_ok=True)
-
-# ## 1.0 - Uppvärmning
-# Kommentar: Har självständigt gått igenom YouTube-videon och byggt ett enkelt KNN-system med Movielens Small.  
-# Denna del lämnas inte in men har gett grundläggande förståelse.
-
-# ## 1.1 - Movielens Full - EDA
-
-# ### a) EDA - Grundläggande undersökning
-# Läser in movies.csv och ratings.csv manuellt
-movies_dict = {}  # movieId -> (title, genres)
-ratings_list = []  # Lista med (userId, movieId, rating, timestamp)
-with open("movies.csv", "r", encoding="utf-8") as f:
-    reader = csv.reader(f)
-    next(reader)  # Hoppa över header
-    for row in reader:
-        movies_dict[int(row[0])] = (row[1], row[2])
-
-with open("ratings.csv", "r", encoding="utf-8") as f:
-    reader = csv.reader(f)
-    next(reader)  # Hoppa över header
-    for row in reader:
-        ratings_list.append((int(row[0]), int(row[1]), float(row[2]), int(row[3])))
-
-print("### Grundläggande information om datasetet")
-print(f"Antal filmer: {len(movies_dict)}")
-print(f"Antal ratings: {len(ratings_list)}")
-unique_users = len(set(user_id for user_id, _, _, _ in ratings_list))
-print(f"Antal användare: {unique_users}")
-
-# Fördelning av ratings (textbaserad)
-rating_counts = defaultdict(int)
-for _, _, rating, _ in ratings_list:
-    rating_counts[int(rating * 2)] += 1  # Multiplicera med 2 för att hantera 0.5-steg
-with open(os.path.join(output_dir, "rating_distribution.txt"), "w") as f:
-    f.write("Rating distribution:\n")
-    for rating in range(1, 11):  # 0.5 till 5.0
-        count = rating_counts[rating]
-        f.write(f"{rating / 2:.1f}: {'*' * (count // 1000000)}\n")
-print("Se rating_distribution.txt för textbaserad fördelning av betyg.")
-
-# ### b) Top 10 filmer med flest ratings
-movie_rating_counts = defaultdict(int)
-for _, movie_id, _, _ in ratings_list:
-    movie_rating_counts[movie_id] += 1
-
-top_10_rated = sorted(movie_rating_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-print("\n### b) Top 10 filmer med flest ratings")
-for movie_id, count in top_10_rated:
-    title = movies_dict[movie_id][0]
-    print(f"{title}: {count} ratings")
-
-# ### c) Genomsnittlig rating för top 10 filmer
-top_10_ids = {movie_id for movie_id, _ in top_10_rated}
-movie_sums = defaultdict(float)
-movie_counts = defaultdict(int)
-for _, movie_id, rating, _ in ratings_list:
-    if movie_id in top_10_ids:
-        movie_sums[movie_id] += rating
-        movie_counts[movie_id] += 1
-
-print("\n### c) Genomsnittlig rating för top 10 filmer")
-for movie_id, count in top_10_rated:
-    avg = movie_sums[movie_id] / count
-    title = movies_dict[movie_id][0]
-    print(f"{title}: {avg:.2f}")
-
-# ### d) Plot över årtal och antal filmer (textbaserad)
-year_counts = defaultdict(int)
-for movie_id, (title, _) in movies_dict.items():
-    try:
-        year = int(title[-5:-1])  # Extrahera årtal från titel (t.ex. "(1995)")
-        year_counts[year] += 1
-    except ValueError:
-        continue
-
-with open(os.path.join(output_dir, "movies_per_year.txt"), "w") as f:
-    f.write("Movies per year:\n")
-    for year in range(min(year_counts.keys()), max(year_counts.keys()) + 1):
-        count = year_counts.get(year, 0)
-        f.write(f"{year}: {'*' * (count // 100)}\n")
-print("Se movies_per_year.txt för textbaserad fördelning av filmer per årtal.")
-
-# ### e) Plot över antal ratings mot movieId (textbaserad)
-with open(os.path.join(output_dir, "ratings_vs_movieId.txt"), "w") as f:
-    f.write("Ratings vs MovieId (sample of top 10):\n")
-    for movie_id, count in top_10_rated[:10]:
-        f.write(f"MovieId {movie_id}: {'*' * (count // 1000)}\n")
-print("Se ratings_vs_movieId.txt för textbaserad representation av ratings för top 10 movieIds.")
-
-# ### f) Stapeldiagram för genomsnittliga ratings för top 10 filmer (textbaserad)
-with open(os.path.join(output_dir, "top_10_avg_ratings.txt"), "w") as f:
-    f.write("Average ratings for top 10 films:\n")
-    for movie_id, count in top_10_rated:
-        avg = movie_sums[movie_id] / count
-        title = movies_dict[movie_id][0][:20]  # Begränsa titelns längd
-        f.write(f"{title}: {'*' * int(avg * 5)}\n")
-print("Se top_10_avg_ratings.txt för textbaserat stapeldiagram.")
-
-# ## 1.2 - Skapa gles matris
-
-# Kommentar: Skapar en enkel gles matris som dictionary istället för full matris pga minnesbegränsningar.
-min_ratings = 100  # Filtrerar filmer med färre än 100 ratings
-filtered_movie_ids = {mid for mid, count in movie_rating_counts.items() if count >= min_ratings}
-sparse_data = defaultdict(lambda: defaultdict(float))
-for user_id, movie_id, rating, _ in ratings_list:
-    if movie_id in filtered_movie_ids:
-        sparse_data[user_id][movie_id] = rating
-
-# Statistik över gles matris
-num_users = len(sparse_data)
-num_movies = len(filtered_movie_ids)
-num_ratings = sum(len(movies) for movies in sparse_data.values())
-print("\n### 1.2 Gles matris")
-print(f"Antal användare: {num_users}")
-print(f"Antal filmer: {num_movies}")
-print(f"Antal ratings: {num_ratings}")
-
-# Motivering: Filtrerade till filmer med minst 100 ratings för att minska datamängden och fokusera på populära filmer,  
-# vilket gör KNN mer hanterbar och relevant. En dictionary används som gles matris för att undvika full matris i minnet.
-
-# ## 1.3 - Recommender system
-
-# Enkel KNN-implementation i ren Python
-def cosine_similarity(vec1, vec2):
-    """Beräkna cosinusavstånd mellan två glesa vektorer."""
-    dot_product = sum(vec1.get(mid, 0) * vec2.get(mid, 0) for mid in set(vec1) | set(vec2))
-    norm1 = math.sqrt(sum(v * v for v in vec1.values()))
-    norm2 = math.sqrt(sum(v * v for v in vec2.values()))
-    if norm1 == 0 or norm2 == 0:
-        return 0
-    return dot_product / (norm1 * norm2)
-
-def get_recommendations(movie_title, n_recommendations=5):
-    """Hämta rekommendationer baserat på en filmtitel."""
-    target_movie_id = None
-    for mid, (title, _) in movies_dict.items():
-        if movie_title in title:  # Enkel strängmatchning
-            target_movie_id = mid
-            break
+def load_movielens_data():
+    """
+    Läs in movies.csv och ratings.csv från den relativa sökvägen.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    movies_path = os.path.join(base_dir, "movies.csv")
+    ratings_path = os.path.join(base_dir, "ratings.csv")
     
-    if target_movie_id is None or target_movie_id not in filtered_movie_ids:
-        return f"Film '{movie_title}' hittades inte eller har för få ratings."
-    
-    # Skapa en vektor för målfilmen
-    target_vector = {}
-    for user_id, movies in sparse_data.items():
-        if target_movie_id in movies:
-            target_vector[user_id] = movies[target_movie_id]
-    
-    # Beräkna likhet med andra filmer
-    similarities = []
-    for movie_id in filtered_movie_ids:
-        if movie_id != target_movie_id:
-            movie_vector = {}
-            for user_id, movies in sparse_data.items():
-                if movie_id in movies:
-                    movie_vector[user_id] = movies[movie_id]
-            sim = cosine_similarity(target_vector, movie_vector)
-            similarities.append((movie_id, sim))
-    
-    # Sortera och hämta topp 5
-    similarities.sort(key=lambda x: x[1], reverse=True)
-    top_n = similarities[:n_recommendations]
-    recommended_titles = [movies_dict[movie_id][0] for movie_id, _ in top_n]
-    return recommended_titles
+    movies = pd.read_csv(movies_path)
+    ratings = pd.read_csv(ratings_path)
+    return movies, ratings
 
-# Interaktiv användarinput
-print("\n### 1.3 Recommender system")
-while True:
-    query = input("Ange en filmtitel (eller 'avsluta' för att sluta): ").strip()
-    if query.lower() == "avsluta":
-        break
-    recommendations = get_recommendations(query)
-    if isinstance(recommendations, str):
-        print(recommendations)
-    else:
-        print(f"Top 5 rekommendationer för '{query}':")
-        for i, title in enumerate(recommendations, 1):
-            print(f"{i}. {title}")
+def eda_movielens(movies, ratings, visual_dir):
+    """
+    1.1 - EDA för Movielens full dataset.
+    
+    a) Utför en explorativ dataanalys (flera plots).
+    b) Visa de 10 filmerna med flest ratings.
+    c) Beräkna genomsnittlig rating för dessa 10 filmer.
+    d) Plot över årtal och antalet filmer.
+    e) Plot över antalet ratings mot movieId.
+    f) Stapeldiagram med genomsnittliga ratings för de 10 filmerna med flest ratings.
+    """
+    # a) Allmän EDA
+    print("Dataset Movies - Info:")
+    print(movies.info())
+    print(movies.head())
+    print("\nDataset Ratings - Info:")
+    print(ratings.info())
+    print(ratings.head())
+    
+    # Plot: Fördelning av ratingvärden
+    plt.figure(figsize=(8, 5))
+    sns.countplot(x='rating', data=ratings, palette="viridis")
+    plt.title("Fördelning av ratingvärden")
+    plt.xlabel("Rating")
+    plt.ylabel("Antal")
+    plt.tight_layout()
+    plt.gcf().set_facecolor('white')
+    plt.savefig(os.path.join(visual_dir, "rating_distribution.png"), dpi=300)
+    plt.close()
+    
+    # b) De 10 filmerna med flest ratings
+    rating_counts = ratings.groupby("movieId").size().reset_index(name="num_ratings")
+    top10 = rating_counts.sort_values("num_ratings", ascending=False).head(10)
+    top10 = top10.merge(movies, on="movieId", how="left")
+    print("\nDe 10 filmerna med flest ratings:")
+    print(top10[["movieId", "title", "num_ratings"]])
+    
+    # c) Genomsnittlig rating för dessa 10 filmer
+    top10_avg = ratings.groupby("movieId")["rating"].mean().reset_index(name="avg_rating")
+    top10 = top10.merge(top10_avg, on="movieId", how="left")
+    print("\nGenomsnittlig rating för de 10 filmerna med flest ratings:")
+    print(top10[["movieId", "title", "avg_rating"]])
+    
+    # f) Stapeldiagram: Genomsnittliga ratings för de 10 filmerna med flest ratings
+    plt.figure(figsize=(10, 6))
+    sns.barplot(data=top10.sort_values("avg_rating", ascending=False), 
+                x="title", y="avg_rating", palette="magma")
+    plt.title("Genomsnittliga ratings för top 10 filmer (flest ratings)", fontsize=16)
+    plt.xlabel("Film", fontsize=14)
+    plt.ylabel("Genomsnittlig rating", fontsize=14)
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.gcf().set_facecolor('white')
+    plt.savefig(os.path.join(visual_dir, "top10_avg_rating.png"), dpi=300)
+    plt.close()
+    
+    # d) Plot över årtal och antalet filmer
+    # Försök extrahera årtal från filmens titel (ofta i formatet "Filmnamn (År)")
+    def extract_year(title):
+        match = re.search(r'\((\d{4})\)', title)
+        return int(match.group(1)) if match else np.nan
 
-# ### a) Beskrivning av systemet
-print("\n### a) Hur systemet fungerar")
-print("Systemet använder en enkel KNN-implementation med cosinusavstånd för att hitta filmer med liknande betygmönster. "
-      "En gles matris (dictionary) skapas från ratings för filmer med minst 100 ratings. Användaren anger en filmtitel, "
-      "systemet bygger en vektor för den filmen baserat på användarbetyg och jämför med andra filmer för att returnera "
-      "de 5 mest liknande.")
+    movies['year'] = movies['title'].apply(extract_year)
+    year_counts = movies['year'].value_counts().sort_index()
+    
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(x=year_counts.index, y=year_counts.values, marker="o")
+    plt.title("Antal filmer per år", fontsize=16)
+    plt.xlabel("År", fontsize=14)
+    plt.ylabel("Antal filmer", fontsize=14)
+    plt.tight_layout()
+    plt.gcf().set_facecolor('white')
+    plt.savefig(os.path.join(visual_dir, "movies_per_year.png"), dpi=300)
+    plt.close()
+    
+    # e) Plot över antalet ratings mot movieId
+    plt.figure(figsize=(10, 6))
+    sns.scatterplot(data=rating_counts, x="movieId", y="num_ratings", color="teal")
+    plt.title("Antal ratings per movieId", fontsize=16)
+    plt.xlabel("movieId", fontsize=14)
+    plt.ylabel("Antal ratings", fontsize=14)
+    plt.tight_layout()
+    plt.gcf().set_facecolor('white')
+    plt.savefig(os.path.join(visual_dir, "ratings_vs_movieId.png"), dpi=300)
+    plt.close()
+    
+def create_sparse_matrix(ratings, min_ratings_movie=50, min_ratings_user=10):
+    """
+    Create a sparse matrix from ratings data with filtering.
+    
+    Args:
+        ratings (pd.DataFrame): DataFrame containing movie ratings
+        min_ratings_movie (int): Minimum number of ratings per movie
+        min_ratings_user (int): Minimum number of ratings per user
+        
+    Returns:
+        tuple: (sparse_matrix, movie_to_idx, user_to_idx)
+    """
+    if ratings.empty:
+        raise ValueError("Ratings DataFrame is empty")
+        
+    # Filtrera filmer med få ratings
+    movie_rating_counts = ratings.groupby("movieId").size()
+    valid_movies = movie_rating_counts[movie_rating_counts >= min_ratings_movie].index
+    ratings_filtered = ratings[ratings["movieId"].isin(valid_movies)]
+    
+    # Filtrera användare med få ratings
+    user_rating_counts = ratings_filtered.groupby("userId").size()
+    valid_users = user_rating_counts[user_rating_counts >= min_ratings_user].index
+    ratings_filtered = ratings_filtered[ratings_filtered["userId"].isin(valid_users)]
+    
+    # Skapa mappings
+    unique_movie_ids = ratings_filtered["movieId"].unique()
+    unique_user_ids = ratings_filtered["userId"].unique()
+    movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(unique_movie_ids)}
+    user_to_idx = {user_id: idx for idx, user_id in enumerate(unique_user_ids)}
+    
+    # Fyll i listor med rad, kolumn och data (rating)
+    rows = ratings_filtered["movieId"].apply(lambda x: movie_to_idx[x]).values
+    cols = ratings_filtered["userId"].apply(lambda x: user_to_idx[x]).values
+    data = ratings_filtered["rating"].values
+    
+    # Skapa sparse matrix (csc format)
+    sparse_mat = csc_matrix((data, (rows, cols)), shape=(len(unique_movie_ids), len(unique_user_ids)))
+    
+    print("Sparse matrix skapad med formen:", sparse_mat.shape)
+    return sparse_mat, movie_to_idx, user_to_idx
 
-# ### b) Om rekommendationssystem
-print("\n### b) Om rekommendationssystem")
-print("Rekommendationssystem predictar användarpreferenser baserat på data. Två huvudsakliga typer är: "
-      "1) Content-based (använder filmattribut som genre), och 2) Collaborative filtering (använder användarbeteenden "
-      "som betyg). Detta system använder collaborative filtering med KNN. Källa: 'Recommender Systems Handbook' "
-      "(Ricci et al., 2011).")
+def build_recommender_system(movies, ratings, movie_to_idx, sparse_mat, visual_dir):
+    """
+    1.3 - Skapa ett recommender system med KNN.
+    
+    Systemet tar en sökquery (del av filmens titel) från användaren, matchar till en film,
+    och returnerar de 5 närmaste filmerna (baserat på KNN, cosine similarity).
+    
+    a) Beskrivning: Vi använder den glesa matrisen med rader motsvarande filmer.
+       Med hjälp av scikit-learns NearestNeighbors (med cosine distance) hittar vi
+       de filmer som har liknande rating-mönster. Filmen som matchar användarens sökquery
+       väljs, och de 5 närmaste grannarna returneras.
+    b) Läsning om recommender system: En vanlig metod är kollaborativ filtrering.
+       (Se t.ex. [Ricci et al., 2011](https://dl.acm.org/doi/abs/10.1145/2043932.2043952) för en översikt.)
+    """
+    # Skapa en modell med cosine-similaritet
+    model_knn = NearestNeighbors(metric="cosine", algorithm="brute")
+    model_knn.fit(sparse_mat)
+    
+    # Be användaren mata in en sökquery
+    query = input("Skriv in en del av filmtiteln du söker: ").strip().lower()
+    
+    # Matcha query mot movies['title']
+    movies["title_lower"] = movies["title"].str.lower()
+    matches = movies[movies["title_lower"].str.contains(query, na=False)]
+    
+    if matches.empty:
+        print("Ingen film hittades med den sökqueryn.")
+        return
+    
+    # Om flera matchar, välj den med flest ratings
+    rating_counts = ratings.groupby("movieId").size().reset_index(name="num_ratings")
+    matches = matches.merge(rating_counts, on="movieId", how="left")
+    matches.sort_values("num_ratings", ascending=False, inplace=True)
+    
+    chosen_movie = matches.iloc[0]
+    print(f"Vald film: {chosen_movie['title']} (movieId: {chosen_movie['movieId']})")
+    
+    # Hitta index i den glesa matrisen för den valda filmen
+    if chosen_movie["movieId"] not in movie_to_idx:
+        print("Den valda filmen finns inte i den filtrerade sparse matrisen.")
+        return
+    
+    chosen_idx = movie_to_idx[chosen_movie["movieId"]]
+    
+    # Hitta de 6 närmaste (vi tar 6 eftersom den valda filmen kommer att vara den första)
+    distances, indices = model_knn.kneighbors(sparse_mat[chosen_idx], n_neighbors=6)
+    
+    # Ta bort första träffen (den valda filmen själv) och visa de 5 rekommendationerna
+    rec_indices = indices.squeeze()[1:]
+    
+    # Skapa en omvänd mapping: index -> movieId
+    idx_to_movie = {idx: movie_id for movie_id, idx in movie_to_idx.items()}
+    
+    print("\nRekommenderade filmer:")
+    for idx in rec_indices:
+        movie_id = idx_to_movie[idx]
+        title = movies[movies["movieId"] == movie_id]["title"].values[0]
+        print(title)
+
+    # Beskrivning med ord:
+    print("\nBeskrivning av recommender systemet:")
+    print("Systemet bygger på kollaborativ filtrering med hjälp av en glesa användar-film-matris.")
+    print("Genom att använda KNN med cosine-similaritet hittar vi filmer med liknande rating-mönster.")
+    print("Användarens sökquery matchas mot filmens titel, och den film som matchar bäst väljs som utgångspunkt.")
+    print("Därefter returneras de 5 filmer som är mest lika den valda filmen.")
+    print("\nFör vidare läsning om recommender system, se t.ex.:")
+    print("Ricci, F., Rokach, L., Shapira, B., & Kantor, P. (2011). Recommender Systems Handbook. Springer.")
+
+def main():
+    # Skapa output-mappen "visualiseringar" (relativ sökväg)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    visual_dir = os.path.join(base_dir, "visualiseringar")
+    if not os.path.exists(visual_dir):
+        os.makedirs(visual_dir)
+    
+    # Ladda in Movielens-datan
+    movies, ratings = load_movielens_data()
+    
+    # Utför EDA och spara grafer
+    eda_movielens(movies, ratings, visual_dir)
+    
+    # Skapa en gles matris från ratings-data (filtrera för att hantera storlek)
+    sparse_mat, movie_to_idx, user_to_idx = create_sparse_matrix(ratings)
+    
+    # Skapa ett recommender system med KNN
+    build_recommender_system(movies, ratings, movie_to_idx, sparse_mat, visual_dir)
+    
+if __name__ == "__main__":
+    main()
