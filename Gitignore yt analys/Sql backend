@@ -1,0 +1,11 @@
+-- extract_marts_sqlite.sql
+DROP TABLE IF EXISTS marts_video_summary;
+CREATE TABLE marts_video_summary AS
+SELECT 
+    video_id,
+    COUNT(*) AS total_views,
+    AVG(likes) AS avg_likes,
+    AVG(comments) AS avg_comments
+FROM original_video_data
+GROUP BY video_id;
+CREATE INDEX idx_video_summary_id ON marts_video_summary(video_id);

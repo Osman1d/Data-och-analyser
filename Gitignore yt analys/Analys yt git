@@ -1,0 +1,12 @@
+# duckdb
+*.wal
+*.DS_Store
+
+# dbeaver
+.dbeaver
+.project
+
+# Ignorera data- och databasmappen
+original_data/
+csv_data/
+data.db
