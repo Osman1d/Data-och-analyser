@@ -1,128 +1,91 @@
-import numpy as np
 import os
+import numpy as np
 
-def load_and_clean_data(filename):
-    """
-    Läser in och rensar data från en fil.
-    """
-    raw_data = []
+# Hämta sökvägen till mappen där skriptet ligger
+base_dir = os.path.dirname(os.path.abspath(__file__))
+# Skapa en relativ sökväg till filen med Pikachu-träningsdata
+PIKACHU_FILE_PATH = os.path.join(base_dir, "pikachu (1).txt")
+
+def load_training_data(file_path):
+    data = []
     try:
-        with open(filename, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                line = line.strip().replace('(', '').replace(')', '')
-                parts = line.split(',')
-                if len(parts) != 2:
-                    print(f"Varning: Ignorerar felaktig rad: {line}")
-                    continue
-                
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+        for line in lines[1:]:
+            line = line.strip()
+            if not line:
+                continue
+            line = line.strip("()")
+            parts = line.split(',')
+            if len(parts) == 2:
                 try:
                     width = float(parts[0])
                     height = float(parts[1])
-                    if width < 0 or height < 0:
-                        print(f"Varning: Ignorerar rad med negativa värden: {line}")
-                        continue
-                    raw_data.append((width, height))
+                    data.append([width, height])
                 except ValueError:
-                    print(f"Varning: Ignorerar rad med icke-numeriska värden: {line}")
-                    continue
-        
-        if not raw_data:
-            raise ValueError("Ingen giltig data hittades i filen.")
-        return raw_data
+                    print(f"Kunde inte omvandla värden i raden: {line}")
     except FileNotFoundError:
-        print(f"Fel: Filen {filename} hittades inte.")
-        return []
+        print(f"Filen hittades inte: {file_path}")
+    return np.array(data)
 
-def assign_labels(raw_data):
-    """
-    Tilldelar preliminära etiketter baserat på storlek.
-    """
-    sizes = [(w + h, (w, h)) for w, h in raw_data]
-    sizes.sort()
-    median_size = sizes[len(sizes) // 2][0]
+# Ladda Pikachu-träningsdata från filen med relativ sökväg
+pikachu_data = load_training_data(PIKACHU_FILE_PATH)
+
+# Definiera Pichu-träningsdata manuellt
+pichu_data = np.array([
+    [15, 14],
+    [26, 30],
+    [17, 16],
+    [20, 22],
+    [18, 19]
+])
+
+# Kombinera träningsdata och skapa motsvarande etiketter
+training_points = np.vstack((pichu_data, pikachu_data))
+labels = np.array(["Pichu"] * len(pichu_data) + ["Pikachu"] * len(pikachu_data))
+
+def classify_kNN(sample, training_points, labels, k=5):
     
-    training_data = []
-    for w, h in raw_data:
-        size = w + h
-        label = 0 if size < median_size else 1
-        training_data.append((w, h, label))
-    return training_data
-
-def euclidean_distance(point1, point2):
-    """
-    Beräknar euklidiskt avstånd mellan två punkter.
-    """
-    return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
-
-def classify_1nn(test_point, training_data):
-    """
-    Klassificerar en testpunkt med 1-NN.
-    """
-    distances = [(euclidean_distance(test_point, (data[0], data[1])), data[2]) for data in training_data]
-    distances.sort()
-    return "Pikachu" if distances[0][1] == 1 else "Pichu"
-
-def classify_5nn(test_point, training_data):
-    """
-    Klassificerar en testpunkt med 5-NN.
-    """
-    distances = [(euclidean_distance(test_point, (data[0], data[1])), data[2]) for data in training_data]
-    distances.sort()
-    nearest_5 = distances[:5]
-    pichu_count = sum(1 for d in nearest_5 if d[1] == 0)
-    pikachu_count = sum(1 for d in nearest_5 if d[1] == 1)
-    return "Pikachu" if pikachu_count > pichu_count else "Pichu"
+    distances = np.linalg.norm(training_points - sample, axis=1)
+    nearest_indices = np.argsort(distances)[:k]
+    nearest_labels = labels[nearest_indices]
+    
+    unique, counts = np.unique(nearest_labels, return_counts=True)
+    max_count = np.max(counts)
+    candidates = unique[counts == max_count]
+    
+    if len(candidates) == 1:
+        return candidates[0]
+    else:
+        # Vid oavgjort, välj den klass som tillhör den allra närmaste grannen bland kandidaterna
+        for idx in nearest_indices:
+            if labels[idx] in candidates:
+                return labels[idx]
 
 def get_user_input():
     """
-    Hanterar användarinmatning med felhantering.
+    Hämtar användarens indata för bredd och höjd med felhantering.
+    Kontrollerar att inmatade värden är numeriska och positiva.
     """
     while True:
         try:
-            width = float(input("Ange bredd: "))
-            height = float(input("Ange höjd: "))
+            width_input = input("Ange bredd (positivt tal): ")
+            height_input = input("Ange höjd (positivt tal): ")
+            width = float(width_input)
+            height = float(height_input)
             if width < 0 or height < 0:
-                print("Fel: Bredd och höjd får inte vara negativa. Försök igen.")
+                print("Fel: Negativa tal är inte tillåtna. Var vänlig ange positiva värden.\n")
                 continue
-            return (width, height)
+            return np.array([width, height])
         except ValueError:
-            print("Fel: Vänligen ange numeriska värden. Försök igen.")
+            print("Fel: Ogiltigt värde. Var vänlig ange numeriska värden.\n")
 
-def main():
-    """
-    Huvudprogrammet.
-    """
-    filename = os.path.join("c:", "Users", "muham", "Documents", "GitHub", "Data-och-analyser", "Labb 1", "pichu.txt")
-    raw_data = load_and_clean_data(filename)
+  Hämta testpunkt från användaren med felhantering
+test_sample = get_user_input()
+
+ Klassificera testpunkten med kNN (k=5)
+result = classify_kNN(test_sample, training_points, labels, k=5)
+print(f"Testpunkten ({test_sample[0]}, {test_sample[1]}) klassificeras som: {result}")
+
+         
     
-    if not raw_data:
-        print("Programmet avslutas på grund av fel i datainläsning.")
-        return
-    
-    training_data = assign_labels(raw_data)
-    print(f"Läste in och rensade {len(training_data)} datapunkter.\n")
-
-    test_data = [(25, 35), (15, 14), (26, 30), (22, 45)]
-    expected_results = ["Pikachu", "Pichu", "Pichu", "Pikachu"]
-
-    print("Grunduppgift (1-NN):")
-    for sample, expected in zip(test_data, expected_results):
-        result = classify_1nn(sample, training_data)
-        print(f"Sample with (width, height): {sample} classified as {result} (Expected: {expected})")
-
-    print("\nUtökad uppgift (5-NN med användarinmatning):")
-    while True:
-        print("\nAnge en testpunkt för att klassificera (eller skriv 'avsluta' för att sluta):")
-        user_input = input(">").strip().lower()
-        if user_input == "avsluta":
-            break
-        
-        test_point = get_user_input()
-        result = classify_5nn(test_point, training_data)
-        print(f"Punkten {test_point} klassificeras som {result}")
-    
-    print("Programmet avslutas.")
-
-if __name__ == "__main__":
-    main()
