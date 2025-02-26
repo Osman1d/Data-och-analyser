@@ -1,118 +1,246 @@
 import os
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-import pandas as pd
 
-# Skapa undermapp för visualiseringar
-output_dir = "visualiseringar"
-os.makedirs(output_dir, exist_ok=True)
+def main():
+    # Hämta sökvägen till mappen där skriptet ligger
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Skapa mappen "visualiseringar" om den inte redan finns
+    visual_dir = os.path.join(base_dir, "visualiseringar")
+    if not os.path.exists(visual_dir):
+        os.makedirs(visual_dir)
+    
+    # =============================================================================
+    # DEL 1 – Arbeta med riket2023_åk9_np.xlsx
+    # =============================================================================
+    riket_file = os.path.join(base_dir, "riket2023_åk9_np.xlsx")
+    try:
+        xlsx = pd.ExcelFile(riket_file)
+    except FileNotFoundError:
+        print(f"Filen {riket_file} hittades inte!")
+        return
+    
+    # Mapping-dictionary: Ändra kolumnnamn enligt antaganden
+    rename_dict = {
+        "Plats": "Plats",
+        "Huvudman": "Huvudman",
+        "Tot_A_F": "Totalt (A-F)",
+        "Flick_A_F": "Flickor (A-F)",
+        "Pojk_A_F": "Pojkar (A-F)",
+        "Tot_A_E": "Totalt (A-E)",
+        "Flick_A_E": "Flickor (A-E)",
+        "Pojk_A_E": "Pojkar (A-E)",
+        "Tot_poäng": "Totalt (poäng)",
+        "Flickor_poäng": "Flickor (poäng)",
+        "Pojkar_poäng": "Pojkar (poäng)",
+        # Antag att vi även har kolumner för F-betyg i Matematik
+        "Tot_F": "Totalt (F)",
+        "Flickor_F": "Flickor (F)",
+        "Pojkar_F": "Pojkar (F)"
+    }
+    
+    # Läs in alla sheets, byt kolumnnamn och spara i en dictionary
+    data_dict = {}
+    for sheet in xlsx.sheet_names:
+        df = pd.read_excel(xlsx, sheet_name=sheet)
+        df.rename(columns=rename_dict, inplace=True)
+        data_dict[sheet] = df
 
-# --- Uppgift 0: Uppvärmning med riket ---
+    # -------------------------------------------------------------------------
+    # b) Ta reda på antalet elever med F i Matematik (totalt, flickor, pojkar)
+    if "Matematik" in data_dict:
+        df_math = data_dict["Matematik"]
+        # Antag att nationell data finns på raden där "Huvudman" är "Samtliga"
+        national_math = df_math[df_math["Huvudman"] == "Samtliga"]
+        if not national_math.empty:
+            total_F = national_math["Totalt (F)"].values[0]
+            flickor_F = national_math["Flickor (F)"].values[0]
+            pojkar_F = national_math["Pojkar (F)"].values[0]
+            print("Matematik – antal F betyg:")
+            print(f"  Totalt: {total_F}")
+            print(f"  Flickor: {flickor_F}")
+            print(f"  Pojkar: {pojkar_F}")
+        else:
+            print("Ingen rad med 'Samtliga' hittades i Matematik-datan.")
+    else:
+        print("Inget sheet med namnet 'Matematik' finns i filen.")
+    
+    # -------------------------------------------------------------------------
+    # c) Rita ett stapeldiagram: Totala poäng per ämne (nationell data)
+    subjects = []
+    total_points = []
+    for subject, df in data_dict.items():
+        # Filtrera ut nationell data (raden med "Huvudman" == "Samtliga")
+        row = df[df["Huvudman"] == "Samtliga"]
+        if not row.empty:
+            subjects.append(subject)
+            total_points.append(row["Totalt (poäng)"].values[0])
+    
+    if subjects:
+        sns.set(style="whitegrid")
+        plt.figure(figsize=(10, 6))
+        ax = sns.barplot(x=subjects, y=total_points, palette="viridis")
+        plt.title("Totala poäng per ämne (nationellt)", fontsize=16)
+        plt.xlabel("Ämne", fontsize=14)
+        plt.ylabel("Totalt (poäng)", fontsize=14)
+        plt.xticks(rotation=45)
+        for p, score in zip(ax.patches, total_points):
+            ax.annotate(f"{score:.1f}", (p.get_x() + p.get_width()/2., p.get_height()),
+                        ha="center", va="bottom", fontsize=12)
+        plt.tight_layout()
+        # Ange vit bakgrund för att undvika transparent bakgrund
+        plt.gcf().set_facecolor('white')
+        output_path = os.path.join(visual_dir, "totala_poang_per_amne.png")
+        plt.savefig(output_path, dpi=300)
+        plt.close()
+        print("Stapeldiagrammet 'totala_poang_per_amne.png' sparades i mappen 'visualiseringar'.")
+    else:
+        print("Ingen nationell data hittades för totala poäng per ämne.")
+    
+    # -------------------------------------------------------------------------
+    # d) Rita fyra stapeldiagram (subplots) – Totala poäng per ämne för olika huvudmän
+    huvudman_list = ["Samtliga", "Kommunal", "Enskild", "Skolverket"]
+    fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+    axs = axs.flatten()
+    
+    for i, huv in enumerate(huvudman_list):
+        subj = []
+        scores = []
+        for subject, df in data_dict.items():
+            row = df[df["Huvudman"] == huv]
+            if not row.empty:
+                subj.append(subject)
+                scores.append(row["Totalt (poäng)"].values[0])
+        ax = axs[i]
+        sns.barplot(x=subj, y=scores, palette="coolwarm", ax=ax)
+        ax.set_title(f"{huv} – Totala poäng per ämne", fontsize=14)
+        ax.set_xlabel("Ämne", fontsize=12)
+        ax.set_ylabel("Totalt (poäng)", fontsize=12)
+        ax.tick_params(axis="x", rotation=45)
+        for p, s in zip(ax.patches, scores):
+            ax.annotate(f"{s:.1f}", (p.get_x() + p.get_width()/2., p.get_height()),
+                        ha="center", va="bottom", fontsize=10)
+    plt.tight_layout()
+    output_path = os.path.join(visual_dir, "subplots_totala_poang_huvudman.png")
+    plt.gcf().set_facecolor('white')
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+    print("Subplot-grafen 'subplots_totala_poang_huvudman.png' sparades i mappen 'visualiseringar'.")
+    
+    # -------------------------------------------------------------------------
+    # e) Rita ett stapeldiagram per ämne (subplots) – Jämför huvudmännen
+    num_subjects = len(data_dict)
+    fig, axs = plt.subplots(num_subjects, 1, figsize=(10, 4*num_subjects))
+    if num_subjects == 1:
+        axs = [axs]
+    for i, (subject, df) in enumerate(data_dict.items()):
+        df_filtered = df[df["Huvudman"].isin(huvudman_list)]
+        ax = axs[i]
+        sns.barplot(x="Huvudman", y="Totalt (poäng)", data=df_filtered, palette="magma", ax=ax)
+        ax.set_title(f"{subject} – Totala poäng per huvudman", fontsize=14)
+        ax.set_xlabel("Huvudman", fontsize=12)
+        ax.set_ylabel("Totalt (poäng)", fontsize=12)
+        for p in ax.patches:
+            ax.annotate(f"{p.get_height():.1f}", (p.get_x() + p.get_width()/2., p.get_height()),
+                        ha="center", va="bottom", fontsize=10)
+    plt.tight_layout()
+    output_path = os.path.join(visual_dir, "subplots_amne_huvudman.png")
+    plt.gcf().set_facecolor('white')
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+    print("Subplot-grafen 'subplots_amne_huvudman.png' sparades i mappen 'visualiseringar'.")
+    
+    # =============================================================================
+    # DEL 2 – Uppvärmning betyg och prov (betyg_o_prov_riksnivå.xlsx med Plotly)
+    # =============================================================================
+    betyg_file = os.path.join(base_dir, "betyg_o_prov_riksnivå.xlsx")
+    try:
+        # a) Linjediagram: Andel elever utan godkänt betyg (läsår 18–23)
+        # Antag sheet "SaknatBetyg" med kolumnerna: "År", "Totalt", "Flickor", "Pojkar"
+        df_saknat = pd.read_excel(betyg_file, sheet_name="SaknatBetyg")
+    except FileNotFoundError:
+        print(f"Filen {betyg_file} hittades inte!")
+        return
+    
+    # Plotly-linjediagram för saknat godkänt betyg
+    fig = px.line(df_saknat, x="År", y=["Totalt", "Flickor", "Pojkar"],
+                  title="Andel elever utan godkänt betyg (läsår 18–23)",
+                  labels={"value": "Andel (%)", "variable": "Kategori"},
+                  markers=True, template="plotly_white")
+    output_html = os.path.join(visual_dir, "saknat_gokit.html")
+    fig.write_html(output_html)
+    print("Plotly-linjediagrammet 'saknat_gokit.html' sparades i mappen 'visualiseringar'.")
+    
+    # b) Linjediagram: Meritvärde för 16 ämnen (läsår 18–23)
+    df_merit = pd.read_excel(betyg_file, sheet_name="Meritvarde")
+    fig = px.line(df_merit, x="År", y=["Totalt", "Flickor", "Pojkar"],
+                  title="Meritvärde för 16 ämnen (läsår 18–23)",
+                  labels={"value": "Meritvärde", "variable": "Kategori"},
+                  markers=True, template="plotly_white")
+    output_html = os.path.join(visual_dir, "meritvarde.html")
+    fig.write_html(output_html)
+    print("Plotly-linjediagrammet 'meritvarde.html' sparades i mappen 'visualiseringar'.")
+    
+    # c) Stapeldiagram: Föräldrars utbildningsbakgrund och medelmeritvärde (läsår 22/23)
+    df_22_23 = pd.read_excel(betyg_file, sheet_name="Las22_23")
+    # Gruppindela efter "FöräldersUtbildning" och beräkna medelmeritvärde
+    df_parent = df_22_23.groupby("FöräldersUtbildning")["Meritvärde"].mean().reset_index()
+    fig = px.bar(df_parent, x="FöräldersUtbildning", y="Meritvärde",
+                 title="Medelmeritvärde per föräldrars utbildningsnivå (läsår 22/23)",
+                 labels={"FöräldersUtbildning": "Föräldrars utbildning", "Meritvärde": "Medelmeritvärde"},
+                 template="plotly_white")
+    output_html = os.path.join(visual_dir, "merit_efter_foraldersutbildning.html")
+    fig.write_html(output_html)
+    print("Plotly-stapeldiagrammet 'merit_efter_fardersutbildning.html' sparades i mappen 'visualiseringar'.")
+    
+    # =============================================================================
+    # DEL 3 – KPIer & Explorativ Dataanalys (EDA)
+    # =============================================================================
+    # Exempel: Använd ett dataset (kpi_dataset.csv) med kolumnerna "AntalSaknat", "TotaltAntal", "Meritvärde",
+    # "Region" och "Huvudman"
+    kpi_file = os.path.join(base_dir, "kpi_dataset.csv")
+    try:
+        df_kpi = pd.read_csv(kpi_file)
+    except FileNotFoundError:
+        print(f"Filen {kpi_file} hittades inte! KPI-analys hoppas därmed inte.")
+        df_kpi = None
+    
+    if df_kpi is not None:
+        # KPI 1: Andel elever med minst ett saknat betyg per skola
+        df_kpi["AndelSaknat"] = df_kpi["AntalSaknat"] / df_kpi["TotaltAntal"] * 100
+        
+        # KPI 2: Genomsnittligt meritvärde per region
+        kpi_merit_per_region = df_kpi.groupby("Region")["Meritvärde"].mean().reset_index()
+        
+        # KPI 3: Skillnad i meritvärde mellan olika huvudmän
+        kpi_merit_huvudman = df_kpi.groupby("Huvudman")["Meritvärde"].mean().reset_index()
+        
+        fig = px.bar(kpi_merit_per_region, x="Region", y="Meritvärde",
+                     title="Genomsnittligt meritvärde per region",
+                     labels={"Meritvärde": "Medelmeritvärde", "Region": "Region"},
+                     template="plotly_white")
+        output_html = os.path.join(visual_dir, "kpi_merit_per_region.html")
+        fig.write_html(output_html)
+        print("KPI-stapeldiagrammet 'kpi_merit_per_region.html' sparades i mappen 'visualiseringar'.")
+        
+        print("\nKPI-analysen är genomförd. Variablerna 'AndelSaknat', 'kpi_merit_per_region' och 'kpi_merit_huvudman' finns för vidare analys.")
+    else:
+        print("Ingen KPI-analys genomförd p.g.a. saknat dataset.")
+    
+    # =============================================================================
+    # Sammanfattande analys
+    # =============================================================================
+    print("\n----------------------------")
+    print("Analys och slutsatser:")
+    print("----------------------------")
+    print("1. Visualiseringarna från riket2023_åk9_np.xlsx visar variationer i nationella provresultat per ämne samt skillnader mellan huvudmän.")
+    print("2. I Matematik-datan kunde vi extrahera antalet elever med F-betyg (totalt, flickor, pojkar), vilket ger insikt i betygsfördelningen.")
+    print("3. Plotly-graferna från betyg_o_prov_riksnivå.xlsx illustrerar trender över tid för andel elever utan godkänt betyg och meritvärden.")
+    print("4. KPI-analysen (om datasetet finns) kompletterar med regionala och huvudmannespécifika insikter, vilket kan användas för att identifiera förbättringsområden.")
+    print("Alla grafer sparas i mappen 'visualiseringar'.")
 
-# Läser in data från Excel-fil och rensar den för varje ämne
-subjects = ["Engelska", "Matematik", "Svenska", "Svenska som andraspråk"]
-data = {subject: pd.read_excel("riket2023_åk9_np.xlsx", sheet_name=subject) for subject in subjects}
-
-# b) Beräkna antal F i matematik
-math_data = data["Matematik"]
-total_f = math_data["Totalt (A-F)"] * (1 - math_data["Totalt (A-E)"] / 100)
-girls_f = math_data["Flickor (A-F)"] * (1 - math_data["Flickor (A-E)"] / 100)
-boys_f = math_data["Pojkar (A-F)"] * (1 - math_data["Pojkar (A-E)"] / 100)
-print("Antal som fått F i matematik (2022/23):")
-print(f"Totalt: {total_f.iloc[0]:.0f}, Flickor: {girls_f.iloc[0]:.0f}, Pojkar: {boys_f.iloc[0]:.0f}")
-
-# c) Stapeldiagram för totala poängen per ämne
-total_scores = {subject: df["Totalt (poäng)"].iloc[0] for subject, df in data.items()}
-plt.figure(figsize=(8, 6))
-sns.barplot(x=list(total_scores.keys()), y=list(total_scores.values()), palette="viridis")
-plt.title("Genomsnittlig Betygspoäng per Ämne (Riket, Samtliga)", fontsize=14)
-plt.xlabel("Ämne", fontsize=12)
-plt.ylabel("Poäng", fontsize=12)
-plt.gca().set_facecolor('#f0f0f0')  # Bakgrundsfärg för läsbarhet
-plt.savefig(os.path.join(output_dir, "total_scores_per_subject.png"), bbox_inches="tight", facecolor="#f0f0f0")
-plt.close()
-
-# d) Subplots för poäng per ämne och huvudman
-fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=True)
-fig.suptitle("Betygspoäng per Ämne och Huvudman", fontsize=16)
-for ax, (subject, df) in zip(axes.flatten(), data.items()):
-    sns.barplot(x="Huvudman", y="Totalt (poäng)", data=df, ax=ax, palette="magma")
-    ax.set_title(subject, fontsize=12)
-    ax.set_xlabel("")
-    ax.set_ylabel("Poäng" if ax.is_first_col() else "")
-    ax.set_facecolor('#f0f0f0')
-    ax.tick_params(axis='x', rotation=45)
-plt.tight_layout(rect=[0, 0, 1, 0.95])
-plt.savefig(os.path.join(output_dir, "scores_by_subject_and_huvudman.png"), bbox_inches="tight", facecolor="#f0f0f0")
-plt.close()
-
-# e) Subplots för poäng per huvudman och ämne
-fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=True)
-fig.suptitle("Betygspoäng per Huvudman och Ämne", fontsize=16)
-huvudman_order = ["Samtliga", "Kommunal", "Enskild", "Skolverket"]
-for ax, huvudman in zip(axes.flatten(), huvudman_order):
-    scores = [data[subject]["Totalt (poäng)"][data[subject]["Huvudman"] == huvudman].values[0] for subject in subjects]
-    sns.barplot(x=subjects, y=scores, ax=ax, palette="coolwarm")
-    ax.set_title(huvudman, fontsize=12)
-    ax.set_xlabel("")
-    ax.set_ylabel("Poäng" if ax.is_first_col() else "")
-    ax.set_facecolor('#f0f0f0')
-    ax.tick_params(axis='x', rotation=45)
-plt.tight_layout(rect=[0, 0, 1, 0.95])
-plt.savefig(os.path.join(output_dir, "scores_by_huvudman_and_subject.png"), bbox_inches="tight", facecolor="#f0f0f0")
-plt.close()
-
-# --- Uppgift 1: Uppvärmning betyg och prov ---
-
-# Läser in data från Excel-fil
-betyg_prov_data = pd.read_excel("betyg_o_prov_riksnivå.xlsx")
-
-# a) Linjediagram för andel saknat betyg
-fig = px.line(betyg_prov_data, x="Läsår", y="Andel saknat betyg", color="Kategori",
-              title="Andel Elever utan Godkänt Betyg (Läsår 18-23)",
-              labels={"Andel saknat betyg": "Andel (%)", "Läsår": "Läsår"})
-fig.update_layout(plot_bgcolor="white", paper_bgcolor="white")
-fig.write_html(os.path.join(output_dir, "andel_saknat_betyg_18_23.html"))
-
-# b) Linjediagram för meritvärde
-fig = px.line(betyg_prov_data, x="Läsår", y="Meritvärde", color="Kategori",
-              title="Meritvärde för 16 Ämnen (Läsår 18-23)",
-              labels={"Meritvärde": "Meritvärde (poäng)", "Läsår": "Läsår"})
-fig.update_layout(plot_bgcolor="white", paper_bgcolor="white")
-fig.write_html(os.path.join(output_dir, "meritvarde_16_amnen_18_23.html"))
-
-# c) Undersök föräldrars utbildning (simulerad data för 22/23)
-edu_data = pd.DataFrame({
-    "Föräldrars utbildning": ["Grundskola", "Gymnasium", "Högskola"],
-    "Andel saknat betyg": [25, 18, 10],
-    "Meritvärde": [200, 215, 230]
-})
-fig = px.bar(edu_data, x="Föräldrars utbildning", y="Meritvärde",
-             title="Meritvärde efter Föräldrars Utbildning (22/23)",
-             labels={"Meritvärde": "Meritvärde (poäng)"})
-fig.update_layout(plot_bgcolor="white", paper_bgcolor="white")
-fig.write_html(os.path.join(output_dir, "meritvarde_by_utbildning_22_23.html"))
-
-# --- Uppgift 2: KPI:er & EDA ---
-
-# Kommentar: Definierar KPI:er och gör EDA på ny data (simulerad från Skolverket)
-kpi_data = pd.DataFrame({
-    "Ämne": ["Engelska", "Matematik", "Svenska"],
-    "Andel A-betyg": [20, 15, 18],
-    "Poängskillnad (F-P)": [0.1, -0.2, 1.8],
-    "Andel provdeltagare": [98, 97, 95]
-})
-
-# Visualisering av Andel A-betyg
-fig = px.bar(kpi_data, x="Ämne", y="Andel A-betyg", 
-             title="Andel A-betyg per Ämne (2023)",
-             labels={"Andel A-betyg": "Andel (%)"})
-fig.update_layout(plot_bgcolor="white", paper_bgcolor="white")
-fig.write_html(os.path.join(output_dir, "andel_a_betyg_2023.html"))
-
-# Dokumentation av KPI:er och slutsatser
-print("\n### KPI-analys (Uppgift 2)")
-print("- **Andel A-betyg**: Högst i Engelska (20%), lägst i Matematik (15%).")
-print("- **Poängskillnad (Flickor - Pojkar)**: Svenska visar störst könsskillnad (1.8 poäng till flickors fördel).")
-print("- **Andel provdeltagare**: Högt överlag, men lägst i Svenska (95%).")
+if __name__ == "__main__":
+    main()
